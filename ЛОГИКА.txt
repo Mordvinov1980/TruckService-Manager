@@ -1,4 +1,5 @@
-2. 🔄 ПОДРОБНОЕ ОПИСАНИЕ ЛОГИКИ С ГРАФАМИ
+ 🔄 ПОДРОБНОЕ ОПИСАНИЕ ЛОГИКИ С ГРАФАМИ
+
 🏗️ АРХИТЕКТУРНАЯ СТРУКТУРА СИСТЕМЫ:
 text
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
@@ -17,6 +18,7 @@ text
 │ • Excel Processor│   │ • Section Accounting│
 │ • Text Drafts   │    │ • Common Database │
 └─────────────────┘    └──────────────────┘
+
 🔄 ПОЛНЫЙ WORKFLOW ГРАФ:
 text
 ┌─────────────────────────────────────────────────────────────────┐
@@ -81,7 +83,7 @@ text
 │                    CREATE ORDER DOCUMENTS                       │
 │                                                                 │
 │ • Generate Excel File (excel_processor.py)                      │
-│ • Generate Text Draft (bot.py)                                  │
+│ • Generate Text Draft (document_factory.py)                     │
 │ • Save to Accounting (data_repositories.py)                     │
 │ • Send to Work Chat (bot.py)                                    │
 └───────────────────────┬─────────────────────────────────────────┘
@@ -94,7 +96,9 @@ text
 │ • Cleanup Session                                               │
 │ • Ready for New Order (/new_order)                              │
 └─────────────────────────────────────────────────────────────────┘
+
 📊 ДЕТАЛИЗАЦИЯ КЛЮЧЕВЫХ ПРОЦЕССОВ:
+
 🔧 ПРОЦЕСС ВЫБОРА РАБОТ:
 text
 User Selects Work
@@ -105,7 +109,8 @@ User Selects Work
 │  Already      │    │  from Selected│    │  with New     │
 │  Selected     │    │  Works List   │    │  Selection    │
 └───────────────┘    └───────────────┘    └───────────────┘
-📄 ПРОЦЕСС СОЗДАНИЯ ДОКУМЕНТОВ:
+
+📄 ПРОЦЕСС СОЗДАНИЯ ДОКУМЕНТОВ (ЧЕРЕЗ FACTORY):
 text
 Finalize Order
         │
@@ -121,6 +126,7 @@ Finalize Order
 │  Send to      │                      │  Save to Accounting │
 │  Work Chat    │                      │  via Repository     │
 └───────────────┘                      └─────────────────────┘
+
 💰 ПРОЦЕСС РАСЧЕТОВ:
 text
 Selected Works & Materials
@@ -138,7 +144,26 @@ Selected Works & Materials
          │  Total Amount   │
          │  (Work+Material)│
          └─────────────────┘
+
+🔄 ПРОЦЕСС ЗАГРУЗКИ ФАЙЛОВ (АДМИН ПАНЕЛЬ):
+text
+Admin Uploads Excel
+        │
+        ▼
+┌───────────────┐    ┌───────────────┐    ┌───────────────┐
+│  Parse &      │───▶│  Merge with   │───▶│  Save Combined│
+│  Validate     │    │  Existing     │    │  File & Clear │
+│  File         │    │  Works        │    │  Cache        │
+└───────────────┘    └───────────────┘    └───────────────┘
+        │
+        ▼
+┌───────────────┐
+│  Show Result  │
+│  & Continue   │
+└───────────────┘
+
 🗃️ СТРУКТУРА ДАННЫХ:
+
 📝 USER SESSION STRUCTURE:
 python
 {
@@ -158,6 +183,7 @@ python
     'current_page': 0,                       # Текущая страница
     'photo_file_ids': [...]                  # ID фото (если есть)
 }
+
 📊 EXCEL DOCUMENT STRUCTURE:
 text
 1. ШАПКА ДОКУМЕНТА (Company Info, Order Details)
@@ -165,6 +191,7 @@ text
 3. БЛОК МАТЕРИАЛОВ (Selected Materials with Prices)
 4. БЛОК ИТОГОВ (Total Calculations)
 5. ПОДПИСИ И КОММЕНТАРИИ
+
 ⚙️ КОНФИГУРАЦИЯ СИСТЕМЫ:
 python
 # СИСТЕМНЫЕ КОНСТАНТЫ
@@ -175,4 +202,29 @@ WORKS_PER_PAGE = 8
 MATERIALS_PER_PAGE = 8
 MAX_RETRIES = 3
 RETRY_DELAY = 1
+
+# GIT КОНФИГУРАЦИЯ
+REPOSITORY_STATUS = "Initialized"
+LAST_COMMIT = "8c77be4"
+CURRENT_BRANCH = "master"
+
+🛡️ GIT WORKFLOW ДЛЯ ЭКСПЕРИМЕНТОВ:
+text
+          ┌─────────────────┐
+          │    MASTER       │ ← Стабильная версия
+          │   (8c77be4)     │
+          └─────────────────┘
+                    │
+                    ▼
+          ┌─────────────────┐
+          │   EXPERIMENTS   │ ← Ветка для патчей
+          │    (patches)    │
+          └─────────────────┘
+                    │
+                    ▼
+          ┌─────────────────┐
+          │  TEST & MERGE   │ ← Тестирование и слияние
+          │   (if stable)   │
+          └─────────────────┘
+
 Система полностью документирована и готова к следующему шагу рефакторинга! 🚀
