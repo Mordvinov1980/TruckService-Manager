@@ -149,15 +149,10 @@ class TruckServiceManagerBot:
                 folder.mkdir(exist_ok=True)
             
             self.sections: Dict[str, Dict[str, Any]] = {
-                'mercedes': {
-                    'name': '🚗 Кузовные работы - Mercedes',
-                    'folder': self.main_folder / "Кузовные_работы_Mercedes",
-                    'works_file': "works_list_mercedes.xlsx"
-                },
-                'techosmotr': {
-                    'name': '🔧 Техническое обслуживание', 
-                    'folder': self.main_folder / "Техническое_обслуживание",
-                    'works_file': "works_list_techosmotr.xlsx"
+                'base': {
+                    'name': '📋 Типовой заказ-наряд',
+                    'folder': self.main_folder / "Типовой_заказ",
+                    'works_file': "works_list_base.xlsx"
                 }
             }
             
