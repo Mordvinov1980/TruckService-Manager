@@ -1,0 +1,38 @@
+# Файл .gitignore для TruckService Manager
+
+# Системные файлы
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# Логи
+*.log
+bot_log.txt
+experimental_log.txt
+
+# Кэш и временные файлы
+__pycache__/
+*.pyc
+.pytest_cache/
+.cache/
+
+# Файлы учета (НЕ коммитим!)
+Общий_учет/
+*/Учет/
+*/Заказы/
+*/Фото/
+
+# Excel базы (коммитим только исходные шаблоны)
+!Шаблоны/works_list_mercedes.xlsx
+!Шаблоны/works_list_techosmotr.xlsx  
+!Шаблоны/list_materials.xlsx
+!Шаблоны/template_autoservice.xlsx
+
+# Переменные окружения
+.env
+.env.local
+
+# Backup файлы
+backup_*
+*.backup
