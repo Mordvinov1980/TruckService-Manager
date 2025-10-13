@@ -21,6 +21,7 @@ from modules.excel_processor import ExcelProcessor, ExcelProcessingError
 from modules.data_repositories import (RepositoryFactory, WorksRepository, MaterialsRepository, 
                                      AccountingRepository, RepositoryError, DataNotFoundError)
 from modules.document_factory import DocumentFactory, DocumentCreationError  # 🆕 ИМПОРТ ФАБРИКИ ДОКУМЕНТОВ
+from modules.admin_panel import AdminPanel
 
 load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
@@ -83,6 +84,7 @@ class TruckServiceManagerBot:
         self.setup_repositories()  # ✅ ИНИЦИАЛИЗИРУЕМ РЕПОЗИТОРИИ
         self.setup_handlers()
         self.setup_bot_menu()
+        self.admin_panel = AdminPanel(self.bot)
         print("🤖 TruckService Manager запущен!")
 
     def setup_repositories(self) -> None:
@@ -387,8 +389,11 @@ class TruckServiceManagerBot:
                 callback_data=f"section_{section_id}"
             ))
         
-        # ✅ ДОБАВЛЯЕМ КНОПКУ DEBUG
-        markup.add(types.InlineKeyboardButton("🐛 DEBUG", callback_data="debug_menu"))
+        # ✅ ДОБАВЛЯЕМ КНОПКИ DEBUG И АДМИН
+        markup.row(
+            types.InlineKeyboardButton("🐛 DEBUG", callback_data="debug_menu"),
+            types.InlineKeyboardButton("👨‍💻 АДМИН", callback_data="admin_panel")
+        )
         
         debug_status = "🔧 РЕЖИМ ОТЛАДКИ ВКЛЮЧЕН" if DEBUG_MODE else "⚙️ РАБОЧИЙ РЕЖИМ"
         
@@ -1067,6 +1072,14 @@ class TruckServiceManagerBot:
     def process_user_input(self, message: types.Message) -> None:
         """ОСНОВНОЙ ОБРАБОТЧИК ВВОДА ПОЛЬЗОВАТЕЛЯ - ТЕПЕРЬ С РОУТИНГОМ"""
         chat_id = message.chat.id
+        
+        # 🔧 ПРОВЕРКА АДМИН-ПАНЕЛИ (первый приоритет)
+        if self.admin_panel.is_awaiting_input(message):
+            if self.admin_panel.is_awaiting_excel(message):
+                self.admin_panel.handle_excel_file_sync(message)
+            else:
+                self.admin_panel.handle_list_name_sync(message)
+            return
         
         if chat_id not in self.user_sessions:
             self.bot.send_message(chat_id, "Начните с команды /start")

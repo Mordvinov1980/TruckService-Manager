@@ -1,0 +1,6 @@
+        elif data.startswith('custom_'):
+            list_name = data.replace('custom_', '')
+            self.bot.answer_callback_query(call.id, f"Открываю список: {list_name}")
+            # Пока заглушка - будет реализовано позже
+            self.bot.send_message(call.message.chat.id, f"🛠️ Пользовательский список: {list_name}\n\nФункциональность в разработке")
+            return
