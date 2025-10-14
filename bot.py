@@ -389,11 +389,33 @@ class TruckServiceManagerBot:
                 callback_data=f"section_{section_id}"
             ))
         
-        # ✅ ДОБАВЛЯЕМ КНОПКИ DEBUG И АДМИН
+        custom_lists = self.admin_panel.get_available_lists()
+        print(f"🔍 DEBUG: найдено пользовательских списков: {custom_lists}")
+        
+        for list_name in custom_lists:
+            markup.add(types.InlineKeyboardButton(
+                f"📁 {list_name}", 
+                callback_data=f"custom_list_{list_name}"
+            ))
+        
         markup.row(
             types.InlineKeyboardButton("🐛 DEBUG", callback_data="debug_menu"),
             types.InlineKeyboardButton("👨‍💻 АДМИН", callback_data="admin_panel")
         )
+        
+        debug_status = "🔧 РЕЖИМ ОТЛАДКИ ВКЛЮЧЕН" if DEBUG_MODE else "⚙️ РАБОЧИЙ РЕЖИМ"
+        
+        lists_info = ""
+        if custom_lists:
+            lists_info = f"\n\n📂 Доступно списков: {len(custom_lists)}"
+            for list_name in custom_lists:
+                lists_info += f"\n• {list_name}"
+        
+        self.bot.send_message(
+            chat_id,
+            f"🏢 TruckService Manager\n\n{debug_status}\nЗаказы {'НЕ БУДУТ' if DEBUG_MODE else 'БУДУТ'} сохраняться в учет\n\nВыберите раздел работ:{lists_info}",
+            reply_markup=markup
+        )    
         
         debug_status = "🔧 РЕЖИМ ОТЛАДКИ ВКЛЮЧЕН" if DEBUG_MODE else "⚙️ РАБОЧИЙ РЕЖИМ"
         
@@ -576,7 +598,50 @@ class TruckServiceManagerBot:
             self.bot.answer_callback_query(call.id, "📊 Переменные в разработке...")
             self.debug_show_variables(chat_id)
             return
-
+        # ✅ ОБРАБОТЧИК ПОЛЬЗОВАТЕЛЬСКИХ СПИСКОВ
+        elif data.startswith('custom_list_'):
+            list_name = data.replace('custom_list_', '')
+            print(f"🔍 DEBUG: Обрабатываем список '{list_name}'")
+            
+            self.bot.answer_callback_query(call.id, f"Выбран список: {list_name}")
+            
+            # Загружаем работы из этого списка
+            works = self.admin_panel.load_works_from_custom_list(list_name)
+            
+            if works:
+                # ✅ СОЗДАЕМ СЕССИЮ ДЛЯ ПОЛЬЗОВАТЕЛЬСКОГО СПИСКА
+                # Используем стандартный раздел 'base' для папок, но сохраняем custom_list
+                self.user_sessions[chat_id] = {
+                    'section': 'base',  # Используем стандартную папку
+                    'custom_list': list_name,  # Сохраняем имя списка для отображения
+                    'step': 'license_plate',
+                    'selected_works': [],
+                    'selected_materials': [],
+                    'current_page': 0,
+                    'works': works  # Загруженные работы из списка
+                }
+                
+                # ✅ ЗАГРУЖАЕМ МАТЕРИАЛЫ (ОБЩИЕ ДЛЯ ВСЕХ)
+                materials = self.load_materials_from_excel()
+                self.user_sessions[chat_id]['materials'] = materials
+                
+                print(f"🔍 DEBUG: Создана сессия для списка '{list_name}'")
+                print(f"🔍 DEBUG: Работ в сессии: {len(works)}")
+                print(f"🔍 DEBUG: Материалов в сессии: {len(materials)}")
+                
+                # ✅ ЗАПУСКАЕМ ПРОЦЕСС СОЗДАНИЯ ЗАКАЗА
+                self.bot.send_message(
+                    chat_id,
+                    f"✅ Выбран список: {list_name}\n"
+                    f"📊 Загружено работ: {len(works)}\n\n"
+                    f"🏗️ Создание заказ-наряда\n\nВведите госномер автомобиля:\nПример: А123ВС77 или 1234АВ"
+                )
+            else:
+                self.bot.send_message(
+                    chat_id,
+                    f"❌ В списке '{list_name}' нет работ или файл поврежден"
+                )
+            return        
         # ✅ ОБРАБОТЧИК ВЫБОРА РАЗДЕЛА - ТОЖЕ НЕ ТРЕБУЕТ СЕССИИ
         elif data.startswith('section_'):
             section_id = data.split('_')[1]
