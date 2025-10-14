@@ -1,4 +1,0 @@
-        elif data == 'admin_panel':
-            self.bot.answer_callback_query(call.id, "Открываю админ-панель...")
-            admin_panel.show_admin_panel(call)
-            return
