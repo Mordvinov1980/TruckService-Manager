@@ -296,7 +296,13 @@ class TruckServiceManagerBot:
                             downloaded_file = self.bot.download_file(file_info.file_path)
                             
                             photo_index = len(session['photo_file_ids'])
-                            section_folder = self.sections[session['section']]['folder']
+                            
+                            # ✅ ОПРЕДЕЛЯЕМ ПАПКУ РАЗДЕЛА
+                            if session['section'].startswith('custom_'):
+                                section_folder = pathlib.Path("Пользовательские_списки") / session['custom_list']
+                            else:
+                                section_folder = self.sections[session['section']]['folder']
+
                             photos_folder = section_folder / "Фото"
                             
                             photo_filename = f"{session['license_plate']}_{session.get('order_number', '000')}_{photo_index}.jpg"
@@ -416,15 +422,7 @@ class TruckServiceManagerBot:
             f"🏢 TruckService Manager\n\n{debug_status}\nЗаказы {'НЕ БУДУТ' if DEBUG_MODE else 'БУДУТ'} сохраняться в учет\n\nВыберите раздел работ:{lists_info}",
             reply_markup=markup
         )    
-        
-        debug_status = "🔧 РЕЖИМ ОТЛАДКИ ВКЛЮЧЕН" if DEBUG_MODE else "⚙️ РАБОЧИЙ РЕЖИМ"
-        
-        self.bot.send_message(
-            chat_id,
-            f"🏢 TruckService Manager\n\n{debug_status}\nЗаказы {'НЕ БУДУТ' if DEBUG_MODE else 'БУДУТ'} сохраняться в учет\n\nВыберите раздел работ:",
-            reply_markup=markup
-        )
-
+       
     def show_debug_menu(self, chat_id: int) -> None:
         """Показывает меню отладки с тестовыми данными"""
         print(f"🔍 DEBUG: show_debug_menu вызван для chat_id={chat_id}")
@@ -522,12 +520,23 @@ class TruckServiceManagerBot:
         return bool(re.match(standard_pattern, text) or re.match(numeric_pattern, text))
 
     def validate_date(self, text: str) -> Tuple[bool, Union[str, datetime.datetime]]:
-        """УПРОЩЕННАЯ ВАЛИДАЦИЯ ДАТЫ"""
+        """УЛУЧШЕННАЯ ВАЛИДАЦИЯ ДАТЫ - РАЗРЕШАЕМ ПРОШЛЫЕ ДАТЫ"""
         try:
             date = datetime.datetime.strptime(text, '%d.%m.%Y')
-            if date.date() < datetime.date.today():
-                return False, "❌ Дата не может быть в прошлом"
+        
+            # ✅ РАЗРЕШАЕМ ДАТЫ ИЗ ПРОШЛОГО (для реальных случаев автосервиса)
+            # ✅ НО ПРОВЕРЯЕМ, ЧТОБЫ ДАТА БЫЛА НЕ СЛИШКОМ ДАВНЕЙ
+            today = datetime.date.today()
+            max_past_days = 30  # Максимум 30 дней назад
+        
+            if date.date() > today + datetime.timedelta(days=365):
+                return False, "❌ Дата не может быть больше чем на год вперед"
+            
+            if date.date() < today - datetime.timedelta(days=max_past_days):
+                return False, f"❌ Дата не может быть раньше чем {max_past_days} дней назад"
+            
             return True, date
+        
         except ValueError:
             return False, "❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ"
 
@@ -610,10 +619,10 @@ class TruckServiceManagerBot:
             
             if works:
                 # ✅ СОЗДАЕМ СЕССИЮ ДЛЯ ПОЛЬЗОВАТЕЛЬСКОГО СПИСКА
-                # Используем стандартный раздел 'base' для папок, но сохраняем custom_list
+                # Используем специальный идентификатор для пользовательских списков
                 self.user_sessions[chat_id] = {
-                    'section': 'base',  # Используем стандартную папку
-                    'custom_list': list_name,  # Сохраняем имя списка для отображения
+                    'section': f'custom_{list_name}',  # Специальный идентификатор
+                    'custom_list': list_name,  # Сохраняем имя списка
                     'step': 'license_plate',
                     'selected_works': [],
                     'selected_materials': [],
@@ -765,7 +774,7 @@ class TruckServiceManagerBot:
             
             # Создаем тестовую сессию с 5 работами и всеми материалами
             test_session = {
-                'section': 'mercedes',
+                'section': 'base',
                 'license_plate': 'ТЕСТ001',
                 'date': datetime.datetime.now(),
                 'order_number': '999',
@@ -775,7 +784,7 @@ class TruckServiceManagerBot:
             }
             
             # Загружаем работы и выбираем первые 5
-            works = self.load_works_from_excel('mercedes')
+            works = self.load_works_from_excel('base')
             if len(works) >= 5:
                 test_session['selected_works'] = works[:5]
                 works_info = "\n".join([f"• {work[0]} ({work[1]} ч)" for work in works[:5]])
@@ -789,7 +798,7 @@ class TruckServiceManagerBot:
             materials_info = "\n".join([f"• {material}" for material in materials])
             
             # ✅ ИСПОЛЬЗУЕМ ФАБРИКУ ДОКУМЕНТОВ ДЛЯ СОЗДАНИЯ ТЕСТОВОГО ЗАКАЗА 🆕
-            section_folder = self.sections['mercedes']['folder']
+            section_folder = self.sections['base']['folder']
             documents = self.document_factory.create_all(test_session, section_folder)
             
             if documents:
@@ -799,7 +808,7 @@ class TruckServiceManagerBot:
 
 📊 СТРУКТУРА ТЕСТОВОГО ЗАКАЗА:
 
-🏗️ Раздел: {self.sections['mercedes']['name']}
+🏗️ Раздел: {self.sections['base']['name']}
 🚗 Госномер: {test_session['license_plate']}
 📅 Дата: {test_session['date'].strftime('%d.%m.%Y')}
 🔢 Номер ЗН: {test_session['order_number']}
@@ -842,7 +851,7 @@ class TruckServiceManagerBot:
         try:
             # Создаем тестовую сессию
             self.user_sessions[chat_id] = {
-                'section': 'mercedes',
+                'section': 'base',
                 'step': 'selecting_works',
                 'license_plate': 'А333АА33',  # Тестовый госномер
                 'date': datetime.datetime.now(),  # Сегодняшняя дата
@@ -856,7 +865,7 @@ class TruckServiceManagerBot:
             session = self.user_sessions[chat_id]
             
             # Загружаем работы для Mercedes
-            works = self.load_works_from_excel('mercedes')
+            works = self.load_works_from_excel('base')
             session['works'] = works
             
             # Загружаем материалы
@@ -1023,7 +1032,12 @@ class TruckServiceManagerBot:
     def _send_order_to_work_chat(self, session: Dict[str, Any], has_photos: bool) -> None:
         """ОБЩИЙ МЕТОД ДЛЯ ОТПРАВКИ ЗАКАЗА В РАБОЧИЙ ЧАТ - С ФОТО ИЛИ БЕЗ"""
         try:
-            section_name = self.sections[session['section']]['name']
+            # ✅ ОПРЕДЕЛЯЕМ ИМЯ РАЗДЕЛА
+            if session['section'].startswith('custom_'):
+                section_name = f"📁 {session['custom_list']}"
+            else:
+                section_name = self.sections[session['section']]['name']
+
             selected_count = len(session['selected_works'])
             materials_count = len(session.get('selected_materials', []))
             total_hours = sum(hours for _, hours in session['selected_works'])
@@ -1070,8 +1084,15 @@ class TruckServiceManagerBot:
     def _create_order_files_with_factory(self, session: Dict[str, Any], chat_id: int, photos_text: str) -> bool:
         """СОЗДАНИЕ ФАЙЛОВ ЧЕРЕЗ ФАБРИКУ ДОКУМЕНТОВ 🆕"""
         try:
-            section_id = session['section']
-            section_folder = self.sections[section_id]['folder']
+            # ✅ ОПРЕДЕЛЯЕМ ПУТЬ ДЛЯ СОХРАНЕНИЯ: стандартный раздел ИЛИ пользовательский список
+            if session['section'].startswith('custom_'):
+                # Пользовательский список - используем его папку
+                list_name = session['custom_list']
+                section_folder = pathlib.Path("Пользовательские_списки") / list_name
+            else:
+                # Стандартный раздел
+                section_id = session['section']
+                section_folder = self.sections[section_id]['folder']
             
             # ✅ ИСПОЛЬЗУЕМ ФАБРИКУ ДЛЯ СОЗДАНИЯ ВСЕХ ДОКУМЕНТОВ
             documents = self.document_factory.create_all(session, section_folder)
@@ -1108,7 +1129,12 @@ class TruckServiceManagerBot:
         selected_count = len(session['selected_works'])
         materials_count = len(session.get('selected_materials', []))
         total_hours = sum(hours for _, hours in session['selected_works'])
-        section_name = self.sections[session['section']]['name']
+
+        # ✅ ОПРЕДЕЛЯЕМ ИМЯ РАЗДЕЛА: стандартный ИЛИ пользовательский
+        if session['section'].startswith('custom_'):
+            section_name = f"📁 {session['custom_list']}"  # Имя пользовательского списка
+        else:
+            section_name = self.sections[session['section']]['name']
         
         result_text = f"""✅ Заказ-наряд успешно создан!
 
@@ -1266,7 +1292,11 @@ class TruckServiceManagerBot:
         total_cost = total_hours * 2500
         total_pages = (len(works) + self.WORKS_PER_PAGE - 1) // self.WORKS_PER_PAGE
         
-        section_name = self.sections[session['section']]['name']
+        # ✅ ОПРЕДЕЛЯЕМ ИМЯ РАЗДЕЛА: стандартный ИЛИ пользовательский
+        if session['section'].startswith('custom_'):
+            section_name = f"📁 {session['custom_list']}"  # Имя пользовательского списка
+        else:
+            section_name = self.sections[session['section']]['name']
         
         text = f"🏗️ {section_name}\n\n"
         text += f"📋 Выбор работ (стр. {page + 1}/{total_pages})\n\n"
@@ -1336,7 +1366,11 @@ class TruckServiceManagerBot:
         selected_count = len(session.get('selected_materials', []))
         total_pages = (len(materials) + self.MATERIALS_PER_PAGE - 1) // self.MATERIALS_PER_PAGE
         
-        section_name = self.sections[session['section']]['name']
+        # ✅ ОПРЕДЕЛЯЕМ ИМЯ РАЗДЕЛА: стандартный ИЛИ пользовательский
+        if session['section'].startswith('custom_'):
+            section_name = f"📁 {session['custom_list']}"  # Имя пользовательского списка
+        else:
+            section_name = self.sections[session['section']]['name']
         
         text = f"🏗️ {section_name}\n\n"
         text += f"📦 Выбор материалов (стр. {page + 1}/{total_pages})\n\n"
@@ -1392,7 +1426,11 @@ class TruckServiceManagerBot:
         total_cost = total_hours * 2500
         total_pages = (len(works) + self.WORKS_PER_PAGE - 1) // self.WORKS_PER_PAGE
         
-        section_name = self.sections[session['section']]['name']
+        # ✅ ОПРЕДЕЛЯЕМ ИМЯ РАЗДЕЛА: стандартный ИЛИ пользовательский
+        if session['section'].startswith('custom_'):
+            section_name = f"📁 {session['custom_list']}"  # Имя пользовательского списка
+        else:
+            section_name = self.sections[session['section']]['name']
         
         text = f"🏗️ {section_name}\n\n"
         text += f"📋 Выбор работ (стр. {page + 1}/{total_pages})\n\n"
@@ -1452,7 +1490,11 @@ class TruckServiceManagerBot:
         selected_count = len(session.get('selected_materials', []))
         total_pages = (len(materials) + self.MATERIALS_PER_PAGE - 1) // self.MATERIALS_PER_PAGE
         
-        section_name = self.sections[session['section']]['name']
+        # ✅ ОПРЕДЕЛЯЕМ ИМЯ РАЗДЕЛА: стандартный ИЛИ пользовательский
+        if session['section'].startswith('custom_'):
+            section_name = f"📁 {session['custom_list']}"  # Имя пользовательского списка
+        else:
+            section_name = self.sections[session['section']]['name']
         
         text = f"🏗️ {section_name}\n\n"
         text += f"📦 Выбор материалов (стр. {page + 1}/{total_pages})\n\n"
