@@ -16,18 +16,34 @@ import logging
 import pickle
 from typing import Dict, List, Tuple, Optional, Union, Any
 
+# ✅ АВТОМАТИЧЕСКАЯ ЗАГРУЗКА ПРАВИЛЬНОГО .env ФАЙЛА
+if os.path.exists('.env.development'):
+    load_dotenv('.env.development')
+    ENV_TYPE = "DEVELOPMENT"
+    print("🔧 ЗАГРУЖЕНО DEVELOPMENT ОКРУЖЕНИЕ (ТЕСТОВЫЙ РЕЖИМ)")
+else:
+    load_dotenv('.env') 
+    ENV_TYPE = "PRODUCTION"
+    print("🚀 ЗАГРУЖЕНО PRODUCTION ОКРУЖЕНИЕ (РАБОЧИЙ РЕЖИМ)")
+
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+
+# ✅ DEBUG_MODE ВСЕГДА True (чтобы избежать ошибок учета)
+DEBUG_MODE = True
+
+# ✅ CHAT_ID БЕРЕМ ИЗ .env ФАЙЛА
+CHAT_ID = os.getenv('CHAT_ID')
+
+print(f"🎯 РЕЖИМ: {ENV_TYPE}")
+print(f"🔧 DEBUG: {DEBUG_MODE} (всегда True - учет отключен)")
+print(f"💬 ЧАТ: {CHAT_ID}")
+
 # ✅ ИМПОРТ МОДУЛЕЙ
 from modules.excel_processor import ExcelProcessor, ExcelProcessingError
 from modules.data_repositories import (RepositoryFactory, WorksRepository, MaterialsRepository, 
                                      AccountingRepository, RepositoryError, DataNotFoundError)
-from modules.document_factory import DocumentFactory, DocumentCreationError  # 🆕 ИМПОРТ ФАБРИКИ ДОКУМЕНТОВ
+from modules.document_factory import DocumentFactory, DocumentCreationError
 from modules.admin_panel import AdminPanel
-
-load_dotenv()
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-
-DEBUG_MODE = True
-CHAT_ID = "-1003145822387"
 
 # ✅ КОНКРЕТНЫЕ ИСКЛЮЧЕНИЯ ДЛЯ BOT.PY
 class BotProcessingError(Exception):
@@ -136,8 +152,17 @@ class TruckServiceManagerBot:
     def setup_directories(self) -> None:
         """УЛУЧШЕННОЕ СОЗДАНИЕ СТРУКТУРЫ ПАПОК - ТОЛЬКО ОДНА ПАПКА ШАБЛОНЫ"""
         try:
-            desktop = pathlib.Path.home() / "Desktop"
-            self.main_folder = desktop / "TruckService_Manager"
+            # ✅ АДАПТИРУЕМ ПУТИ ДЛЯ ОБЛАКА И ЛОКАЛЬНОЙ РАБОТЫ
+            # Всегда используем текущую директорию для облачной совместимости
+            self.main_folder = pathlib.Path.cwd() / "TruckService_Manager"
+        
+            # Для обратной совместимости - если на Desktop уже есть папка, используем ее
+            desktop_path = pathlib.Path.home() / "Desktop" / "TruckService_Manager"
+            if desktop_path.exists() and not (self.main_folder / "Типовой_заказ").exists():
+                self.main_folder = desktop_path
+                print(f"📁 Используем существующую папку на Desktop: {self.main_folder}")
+            else:
+                print(f"📁 Создаем папку в текущей директории: {self.main_folder}")
             
             # ОСНОВНЫЕ ПАПКИ
             essential_folders = [
@@ -527,7 +552,7 @@ class TruckServiceManagerBot:
             # ✅ РАЗРЕШАЕМ ДАТЫ ИЗ ПРОШЛОГО (для реальных случаев автосервиса)
             # ✅ НО ПРОВЕРЯЕМ, ЧТОБЫ ДАТА БЫЛА НЕ СЛИШКОМ ДАВНЕЙ
             today = datetime.date.today()
-            max_past_days = 30  # Максимум 30 дней назад
+            max_past_days = 365  # Максимум 365 дней назад
         
             if date.date() > today + datetime.timedelta(days=365):
                 return False, "❌ Дата не может быть больше чем на год вперед"
