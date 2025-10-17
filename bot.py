@@ -351,17 +351,67 @@ class TruckServiceManagerBot:
             except Exception as e:
                 self._handle_critical_error(call.message.chat.id, f"Ошибка обработки callback: {e}")
 
-    def _handle_critical_error(self, chat_id: int, error_message: str) -> None:
-        """Обработка критических ошибок с отправкой сообщения пользователю"""
-        try:
-            self.bot.send_message(
-                chat_id,
-                f"❌ Произошла критическая ошибка. Пожалуйста, попробуйте еще раз или обратитесь к администратору.\n\nОшибка: {error_message}"
-            )
-            self.logger.error(f"Критическая ошибка в chat_id {chat_id}: {error_message}")
-        except Exception as e:
-            self.logger.error(f"Не удалось отправить сообщение об ошибке: {e}")
+        # ✅ ДОБАВЛЯЕМ ОБРАБОТЧИК ТЕКСТОВЫХ СООБЩЕНИЙ ДЛЯ АДМИН-ПАНЕЛИ
 
+        @self.bot.message_handler(content_types=['text'])
+        def handle_text_messages(message: types.Message) -> None:
+            """Обработка текстовых сообщений для админ-панели"""
+            try:
+                chat_id = message.chat.id
+                print(f"🔍 DEBUG handle_text_messages: получен текст от {chat_id}")
+        
+                # ✅ ПРОСТАЯ ПРОВЕРКА - только новый метод
+                if self.admin_panel.is_awaiting_input(message):
+                    await_type = self.admin_panel.awaiting_input_users.get(chat_id, '')
+                    print(f"🔍 DEBUG: Ожидается ввод типа: '{await_type}'")
+            
+                    # ✅ ТОЛЬКО НОВЫЙ МЕТОД
+                    if await_type == 'add_list_name':
+                        print(f"🔍 DEBUG: Вызываем handle_add_list_name_sync")
+                        self.admin_panel.handle_add_list_name_sync(message)
+                        return
+                    else:
+                        print(f"🔍 DEBUG: Неизвестный тип ожидания: '{await_type}'")
+                
+                # Если это не админ-ввод, обрабатываем как обычное сообщение
+                print(f"🔍 DEBUG: Обрабатываем как обычное сообщение")
+                self.process_user_input(message)
+            
+            except Exception as e:
+                self._handle_critical_error(message.chat.id, f"Ошибка обработки текста: {e}")
+
+        # ✅ ДОБАВЛЯЕМ ОБРАБОТЧИК ДОКУМЕНТОВ ДЛЯ АДМИН-ПАНЕЛИ
+        @self.bot.message_handler(content_types=['document'])
+        def handle_documents(message: types.Message) -> None:
+            """Обработка документов для админ-панели"""
+            try:
+                chat_id = message.chat.id
+                print(f"🔍 DEBUG handle_documents: получен документ от {chat_id}")
+                print(f"🔍 DEBUG: awaiting_input_users: {self.admin_panel.awaiting_input_users}")
+            
+                # Если админ-панель ожидает Excel файл
+                if self.admin_panel.is_awaiting_excel(message):
+                    print(f"🔍 DEBUG: Админ-панель ожидает Excel")
+                    await_type = self.admin_panel.awaiting_input_users.get(chat_id, '')
+                    print(f"🔍 DEBUG: Тип ожидания: '{await_type}'")
+                
+                    if 'add_excel_file:' in await_type:
+                        print(f"🔍 DEBUG: Вызываем handle_add_excel_file_sync")
+                        self.admin_panel.handle_add_excel_file_sync(message)
+                        return
+                    elif 'excel_file:' in await_type:
+                        print(f"🔍 DEBUG: Вызываем handle_excel_file_sync")
+                        self.admin_panel.handle_excel_file_sync(message)
+                        return
+                else:
+                    print(f"🔍 DEBUG: Админ-панель НЕ ожидает Excel")
+                    
+                # Если это не админ-документ, игнорируем
+                print(f"📄 Получен документ не для админ-панели: {message.document.file_name}")
+                
+            except Exception as e:
+                self._handle_critical_error(message.chat.id, f"Ошибка обработки документа: {e}")        
+ 
     def _handle_photo_error(self, chat_id: int, error_message: str) -> None:
         """Обработка ошибок при работе с фото"""
         try:
@@ -372,6 +422,17 @@ class TruckServiceManagerBot:
             self.logger.error(f"Ошибка фото в chat_id {chat_id}: {error_message}")
         except Exception as e:
             self.logger.error(f"Не удалось отправить сообщение об ошибке фото: {e}")
+
+    def _handle_critical_error(self, chat_id: int, error_message: str) -> None:
+        """Обработка критических ошибок"""
+        try:
+            self.bot.send_message(
+                chat_id,
+                f"❌ Произошла ошибка. Попробуйте еще раз.\n\nОшибка: {error_message}"
+            )
+            self.logger.error(f"Критическая ошибка в chat_id {chat_id}: {error_message}")
+        except Exception as e:
+            self.logger.error(f"Не удалось отправить сообщение об ошибке: {e}")            
 
     def show_help(self, chat_id: int) -> None:
         help_text = """
@@ -576,7 +637,30 @@ class TruckServiceManagerBot:
         data = call.data
         
         print(f"🔍 DEBUG: Нажата кнопка с data='{data}', chat_id={chat_id}")
-        
+
+        # ✅ ДОБАВЛЯЕМ ОБРАБОТЧИК ДЛЯ НОВОЙ КНОПКИ
+        if data == 'admin_add_list':
+            self.bot.answer_callback_query(call.id, "Добавляем новый список...")
+            self.admin_panel.handle_add_list_start_sync(call)
+            return
+    
+        # ✅ ДОБАВЛЯЕМ ОБРАБОТЧИКИ АДМИН-ПАНЕЛИ (В НАЧАЛО МЕТОДА)
+        if data == 'admin_panel':
+            self.bot.answer_callback_query(call.id, "Открываю админ-панель...")
+            self.admin_panel.show_admin_panel_sync(call)
+            return
+    
+        if data == 'admin_manage_lists':
+            self.bot.answer_callback_query(call.id, "Управление списками в разработке...")
+            # Пока заглушка
+            self.bot.send_message(chat_id, "📋 Управление списками - в разработке 🚧")
+            return
+    
+        if data == 'admin_back':
+            self.bot.answer_callback_query(call.id, "Возвращаемся...")
+            self.show_section_selection(chat_id)
+            return
+
         # ✅ ПЕРЕНОСИМ ВСЕ ОБРАБОТЧИКИ, КОТОРЫЕ НЕ ТРЕБУЮТ СЕССИИ - ВНАЧАЛЕ
         if data == 'debug_menu':
             self.bot.answer_callback_query(call.id, "Открываю меню отладки...")
@@ -1169,7 +1253,7 @@ class TruckServiceManagerBot:
             if self.admin_panel.is_awaiting_excel(message):
                 self.admin_panel.handle_excel_file_sync(message)
             else:
-                self.admin_panel.handle_list_name_sync(message)
+                self.admin_panel.handle_add_list_name_sync(message)
             return
         
         if chat_id not in self.user_sessions:
