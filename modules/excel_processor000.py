@@ -1,6 +1,6 @@
 """
 🚀 МОДУЛЬ ДЛЯ ПРОФЕССИОНАЛЬНОЙ ГЕНЕРАЦИИ EXCEL ЗАКАЗ-НАРЯДОВ
-ФИНАЛЬНАЯ ВЕРСИЯ С ПОДДЕРЖКОЙ ШАБЛОНОВ ШАПОК
+ФИНАЛЬНАЯ ВЕРСИЯ С ИСПРАВЛЕННЫМ БАГОМ КОНВЕРТАЦИИ СУММЫ
 """
 
 import openpyxl
@@ -11,8 +11,6 @@ from num2words import num2words
 import os
 import logging
 from typing import Dict, Any, Optional, Tuple, List
-import json
-import pathlib
 
 # ✅ КОНКРЕТНЫЕ ИСКЛЮЧЕНИЯ ДЛЯ EXCEL ПРОЦЕССОРА
 class ExcelProcessingError(Exception):
@@ -39,112 +37,10 @@ class FormattingError(ExcelProcessingError):
     """Ошибка применения форматирования"""
     pass
 
-class HeaderTemplateManager:
-    """Менеджер шаблонов шапок документов"""
-    
-    def __init__(self, templates_path: pathlib.Path):
-        self.templates_path = templates_path
-        self.templates = {}
-        self._load_templates()
-    
-    def _load_templates(self) -> None:
-        """Загрузка всех шаблонов шапок из папки"""
-        try:
-            # Создаем папку если не существует
-            self.templates_path.mkdir(parents=True, exist_ok=True)
-            
-            template_files = list(self.templates_path.glob("*.json"))
-            for template_file in template_files:
-                try:
-                    with open(template_file, 'r', encoding='utf-8') as f:
-                        template_data = json.load(f)
-                        self.templates[template_data['id']] = template_data
-                    print(f"✅ Загружен шаблон: {template_data['name']}")
-                except Exception as e:
-                    print(f"❌ Ошибка загрузки шаблона {template_file}: {e}")
-            
-            print(f"✅ Всего загружено шаблонов шапок: {len(self.templates)}")
-            
-            # Если нет шаблонов, создаем базовые
-            if not self.templates:
-                self._create_default_templates()
-                
-        except Exception as e:
-            print(f"❌ Ошибка загрузки шаблонов: {e}")
-    
-    def _create_default_templates(self) -> None:
-        """Создание шаблонов по умолчанию"""
-        default_templates = [
-            {
-                "id": "bridge_town",
-                "name": "🏢 Бриджтаун Фудс",
-                "customer": {
-                    "company": "ЗАО «Бриджтаун Фудс»",
-                    "address": "600026, г. Владимир, ул. Куйбышева д. 3"
-                },
-                "contractor": {
-                    "company": "ИП Айрапетян Кристина Тиграновна",
-                    "address": "600033, Владимирская обл., г. Владимир, ул. Сущевская, д. 7, кв. 152",
-                    "inn": "234206956031",
-                    "ogrnip": "321332800018501",
-                    "email": "airanetan93@gmail.com",
-                    "phone": "+79190130122"
-                },
-                "default_vehicle": "Mercedes-Benz MP4"
-            },
-            {
-                "id": "company_a", 
-                "name": "🏭 Компания А",
-                "customer": {
-                    "company": "ООО «Компания А»",
-                    "address": "г. Москва, ул. Ленина д. 1"
-                },
-                "contractor": {
-                    "company": "ИП Айрапетян Кристина Тиграновна",
-                    "address": "600033, Владимирская обл., г. Владимир, ул. Сущевская, д. 7, кв. 152",
-                    "inn": "234206956031", 
-                    "ogrnip": "321332800018501",
-                    "email": "airanetan93@gmail.com",
-                    "phone": "+79190130122"
-                },
-                "default_vehicle": "Грузовой автомобиль"
-            }
-        ]
-        
-        for template_data in default_templates:
-            template_file = self.templates_path / f"{template_data['id']}.json"
-            try:
-                with open(template_file, 'w', encoding='utf-8') as f:
-                    json.dump(template_data, f, ensure_ascii=False, indent=2)
-                self.templates[template_data['id']] = template_data
-                print(f"✅ Создан шаблон по умолчанию: {template_data['name']}")
-            except Exception as e:
-                print(f"❌ Ошибка создания шаблона {template_data['id']}: {e}")
-    
-    def get_template(self, template_id: str) -> Dict[str, Any]:
-        """Получить шаблон по ID"""
-        return self.templates.get(template_id)
-    
-    def get_available_templates(self) -> List[Dict[str, str]]:
-        """Получить список доступных шаблонов"""
-        return [
-            {'id': template_id, 'name': template_data['name']}
-            for template_id, template_data in self.templates.items()
-        ]
 
 class ExcelProcessor:
     def __init__(self):
         self.rate_per_hour = 2500
-        # ✅ ДОБАВЛЯЕМ МЕНЕДЖЕР ШАБЛОНОВ
-        self.header_manager = HeaderTemplateManager(
-            pathlib.Path("Шаблоны") / "header_templates"
-        )
-        # ✅ ДОБАВЛЯЕМ ОТЛАДКУ ЗАГРУЗКИ ШАБЛОНОВ
-        print("🔍 DEBUG: Загружены шаблоны шапок:")
-        templates = self.header_manager.get_available_templates()
-        for template in templates:
-            print(f"   - {template['name']} (ID: {template['id']})")
-        print(f"🔍 DEBUG: Всего загружено шаблонов: {len(templates)}")
 
     def create_professional_order(self, session: Dict[str, Any], template_path: str, output_path: str) -> bool:
         """СОЗДАЕМ ПРОФЕССИОНАЛЬНЫЙ ЗАКАЗ-НАРЯД С ЧЕТКОЙ СТРУКТУРОЙ И УЛУЧШЕННОЙ ОБРАБОТКОЙ ОШИБОК"""
@@ -217,41 +113,29 @@ class ExcelProcessor:
             raise FileSaveError(f"Ошибка файловой системы при сохранении: {output_path}") from e
     
     def _create_header_block(self, ws, session: Dict[str, Any]) -> int:
-        """БЛОК 1: ШАПКА ДОКУМЕНТА С ПОДДЕРЖКОЙ ШАБЛОНОВ"""
+        """БЛОК 1: ШАПКА ДОКУМЕНТА С ОБРАБОТКОЙ ОШИБОК"""
         try:
             current_row = 1
             
-            # ✅ ПОЛУЧАЕМ ВЫБРАННЫЙ ШАБЛОН ИЛИ ИСПОЛЬЗУЕМ ПО УМОЛЧАНИЮ
-            template_id = session.get('header_template', 'bridge_town')
-            template = self.header_manager.get_template(template_id)
-            
-            if not template:
-                # Резервный шаблон если выбранный не найден
-                template = self.header_manager.get_template('bridge_town')
-            
-            # ДАННЫЕ ИСПОЛНИТЕЛЯ (всегда одинаковые)
-            contractor = template['contractor']
-            customer = template['customer']
-            
-            # ШАПКА ДОКУМЕНТА С ДАННЫМИ ИЗ ШАБЛОНА
+            # Данные компании
             ws.merge_cells(f'A{current_row}:F{current_row}')
-            ws[f'A{current_row}'] = f"ИНДИВИДУАЛЬНЫЙ ПРЕДПРИНИМАТЕЛЬ {contractor['company'].split('ИП ')[1]}"
+            ws[f'A{current_row}'] = "ИНДИВИДУАЛЬНЫЙ ПРЕДПРИНИМАТЕЛЬ АЙРАПЕТЯН КРИСТИНА ТИГРАНОВНА"
             ws[f'A{current_row}'].font = Font(bold=True, size=12)
             ws[f'A{current_row}'].alignment = Alignment(horizontal='center', vertical='center')
             current_row += 1
             
             ws.merge_cells(f'A{current_row}:F{current_row}')
-            ws[f'A{current_row}'] = f"ИНН: {contractor['inn']} ОГРНИП: {contractor['ogrnip']}"
+            ws[f'A{current_row}'] = "ИНН: 234206956031 ОГРНИП: 321332800018501"
             ws[f'A{current_row}'].alignment = Alignment(horizontal='center', vertical='center')
             current_row += 1
             
             ws.merge_cells(f'A{current_row}:F{current_row}')
-            ws[f'A{current_row}'] = contractor['address']
+            ws[f'A{current_row}'] = "600033, Владимирская обл., г. Владимир, ул. Сущевская, д. 7, кв. 152"
             ws[f'A{current_row}'].alignment = Alignment(horizontal='center', vertical='center')
             current_row += 1
             
             ws.merge_cells(f'A{current_row}:F{current_row}')
-            ws[f'A{current_row}'] = f"{contractor['email']} {contractor['phone']}"
+            ws[f'A{current_row}'] = "airanetan93@gmail.com +79190130122"
             ws[f'A{current_row}'].alignment = Alignment(horizontal='center', vertical='center')
             current_row += 1
             
@@ -278,7 +162,7 @@ class ExcelProcessor:
             ws[f'B{current_row}'].alignment = Alignment(horizontal='center', vertical='center')
             current_row += 1
             
-            # ЗАКАЗЧИК ИЗ ШАБЛОНА
+            # Заказчик
             ws.merge_cells(f'B{current_row}:F{current_row}')
             ws[f'B{current_row}'] = "Заказчик"
             ws[f'B{current_row}'].font = Font(bold=True)
@@ -286,19 +170,18 @@ class ExcelProcessor:
             current_row += 1
             
             ws.merge_cells(f'B{current_row}:F{current_row}')
-            ws[f'B{current_row}'] = customer['company']
+            ws[f'B{current_row}'] = "ЗАО «Бриджтаун Фудс»"
             ws[f'B{current_row}'].alignment = Alignment(horizontal='center', vertical='center')
             current_row += 1
             
             ws.merge_cells(f'B{current_row}:F{current_row}')
-            ws[f'B{current_row}'] = f"Адрес: {customer['address']}"
+            ws[f'B{current_row}'] = "Адрес: 600026, г. Владимир, ул. Куйбышева д. 3"
             ws[f'B{current_row}'].alignment = Alignment(horizontal='center', vertical='center')
             current_row += 1
             
             # Данные автомобиля
-            default_vehicle = template.get('default_vehicle', 'Автомобиль')
             ws.merge_cells(f'B{current_row}:D{current_row}')
-            ws[f'B{current_row}'] = f"Марка, модель: {default_vehicle}"
+            ws[f'B{current_row}'] = f"Марка, модель: Mercedes-Benz MP4"
             ws[f'B{current_row}'].alignment = Alignment(horizontal='left', vertical='center')
             ws[f'E{current_row}'] = "Двигатель №"
             ws[f'E{current_row}'].alignment = Alignment(horizontal='center', vertical='center')
@@ -326,8 +209,8 @@ class ExcelProcessor:
             ws[f'B{current_row}'].font = Font(bold=True)
             ws[f'B{current_row}'].alignment = Alignment(horizontal='center', vertical='center')
             
-            print(f"✅ Блок 1: Шапка документа создана (шаблон: {template['name']})")
-            return current_row
+            print("✅ Блок 1: Шапка документа создана")
+            return current_row  # Возвращаем последнюю строку шапки
             
         except Exception as e:
             raise ExcelGenerationError(f"Ошибка создания шапки документа: {e}") from e

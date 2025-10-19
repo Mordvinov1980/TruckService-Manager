@@ -84,7 +84,12 @@ class TruckServiceManagerBot:
         self.setup_repositories()  # ✅ ИНИЦИАЛИЗИРУЕМ РЕПОЗИТОРИИ
         self.setup_handlers()
         self.setup_bot_menu()
+        
+        # ✅ СОЗДАЕМ АДМИН-ПАНЕЛЬ ПОСЛЕ setup_handlers()
         self.admin_panel = AdminPanel(self.bot)
+        # ✅ РЕГИСТРИРУЕМ ОБРАБОТЧИКИ АДМИН-ПАНЕЛИ
+        ##self.admin_panel.register_handlers(self.bot)
+        
         print("🤖 TruckService Manager запущен!")
 
     def setup_repositories(self) -> None:
@@ -180,53 +185,6 @@ class TruckServiceManagerBot:
             
         except Exception as e:
             raise FileSystemError(f"Ошибка создания структуры папок: {e}") from e
-
-    # ✅ ЗАМЕНА СТАРЫХ МЕТОДОВ ЗАГРУЗКИ НА РЕПОЗИТОРИИ
-    def load_works_from_excel(self, section_id: str, use_cache: bool = True) -> List[Tuple[str, float]]:
-        """ЗАГРУЗКА РАБОТ ЧЕРЕЗ РЕПОЗИТОРИЙ"""
-        try:
-            return self.works_repository.get_works(section_id)
-        except DataNotFoundError as e:
-            self.logger.error(f"❌ Ошибка загрузки работ: {e}")
-            return []
-        except Exception as e:
-            self.logger.error(f"❌ Неожиданная ошибка загрузки работ: {e}")
-            return []
-
-    def load_materials_from_excel(self, use_cache: bool = True) -> List[str]:
-        """ЗАГРУЗКА МАТЕРИАЛОВ ЧЕРЕЗ РЕПОЗИТОРИЙ"""
-        try:
-            return self.materials_repository.get_materials()
-        except Exception as e:
-            self.logger.error(f"❌ Ошибка загрузки материалов: {e}")
-            return []
-
-    def save_to_accounting(self, session: Dict[str, Any], excel_filename: str, has_photos: str) -> bool:
-        """СОХРАНЕНИЕ В УЧЕТ ЧЕРЕЗ РЕПОЗИТОРИЙ"""
-        if DEBUG_MODE:
-            print(f"🔧 [DEBUG] Заказ НЕ сохранен в учет: {excel_filename}, фото: {has_photos}")
-            return True
-            
-        try:
-            return self.accounting_repository.save_order(session, excel_filename, has_photos)
-        except Exception as e:
-            self.logger.error(f"❌ Ошибка сохранения в учет: {e}")
-            return False
-
-    def initialize_accounting(self) -> None:
-        """Инициализация файлов учета с обработкой ошибок"""
-        # Теперь инициализация происходит в репозитории
-        pass
-
-    def setup_section_accounting_file(self, accounting_file: pathlib.Path, section_id: str) -> None:
-        """Создание файла учета для раздела с обработкой ошибок"""
-        # Теперь создание файлов происходит в репозитории
-        pass
-
-    def setup_common_accounting_file(self, accounting_file: pathlib.Path) -> None:
-        """Создание общей базы данных с обработкой ошибок"""
-        # Теперь создание файлов происходит в репозитории
-        pass
 
     def setup_handlers(self) -> None:
         """Настройка обработчиков с улучшенной обработкой ошибок"""
@@ -337,10 +295,64 @@ class TruckServiceManagerBot:
             except Exception as e:
                 self._handle_critical_error(message.chat.id, f"Критическая ошибка обработки фото: {e}")
 
-        @self.bot.message_handler(func=lambda message: True)
-        def handle_message(message: types.Message) -> None:
+        # ✅ УНИФИЦИРОВАННЫЙ ОБРАБОТЧИК ДЛЯ ТЕКСТА И ДОКУМЕНТОВ
+        @self.bot.message_handler(content_types=['text', 'document'])
+        def handle_all_messages(message: types.Message) -> None:
+            """УНИФИЦИРОВАННЫЙ ОБРАБОТЧИК для текста и документов"""
             try:
-                self.process_user_input(message)
+                chat_id = message.chat.id
+                print(f"🔍 DEBUG handle_all_messages: получено сообщение от {chat_id}")
+                
+                # ✅ ПЕРВЫЙ ПРИОРИТЕТ: АДМИН-ПАНЕЛЬ
+                if message.content_type == 'document' and hasattr(self, 'admin_panel') and self.admin_panel.is_awaiting_excel(message):
+                    print(f"🔍 DEBUG: Админ-панель ожидает Excel документ")
+                    await_type = self.admin_panel.awaiting_input_users.get(chat_id, '')
+                    print(f"🔍 DEBUG: Тип ожидания: '{await_type}'")
+                    
+                    if 'add_excel_file:' in await_type:
+                        print(f"🔍 DEBUG: Вызываем handle_add_excel_file_sync")
+                        self.admin_panel.handle_add_excel_file_sync(message)
+                        return
+                    elif 'excel_file:' in await_type:
+                        print(f"🔍 DEBUG: Вызываем handle_excel_file_sync")
+                        self.admin_panel.handle_excel_file_sync(message)
+                        return
+                
+                elif message.content_type == 'text' and hasattr(self, 'admin_panel') and self.admin_panel.is_awaiting_input(message):
+                    print(f"🔍 DEBUG: Админ-панель ожидает текстовый ввод")
+                    await_type = self.admin_panel.awaiting_input_users.get(chat_id, '')
+                    print(f"🔍 DEBUG: Ожидается ввод типа: '{await_type}'")
+                
+                    # ✅ ОБРАБОТЧИКИ ДЛЯ ШАБЛОНОВ И СПИСКОВ
+                    if await_type == 'add_list_name':
+                        print(f"🔍 DEBUG: Вызываем handle_add_list_name_sync")
+                        self.admin_panel.handle_add_list_name_sync(message)
+                        return
+                    elif await_type == 'add_template_id':
+                        print(f"🔍 DEBUG: Вызываем handle_add_template_id_sync")
+                        self.admin_panel.handle_add_template_id_sync(message)
+                        return
+                    elif await_type.startswith('add_template_name:'):
+                        print(f"🔍 DEBUG: Вызываем handle_add_template_name_sync")
+                        self.admin_panel.handle_add_template_name_sync(message)
+                        return
+                    elif await_type.startswith('add_template_company:'):
+                        print(f"🔍 DEBUG: Вызываем handle_add_template_company_sync")
+                        self.admin_panel.handle_add_template_company_sync(message)
+                        return
+                    elif await_type.startswith('add_template_address:'):
+                        print(f"🔍 DEBUG: Вызываем handle_add_template_address_sync")
+                        self.admin_panel.handle_add_template_address_sync(message)
+                        return
+                    else:
+                        print(f"🔍 DEBUG: Неизвестный тип ожидания: '{await_type}'")
+                
+                # ✅ ВТОРОЙ ПРИОРИТЕТ: ОСНОВНОЙ БОТ
+                if message.content_type == 'text':
+                    self.process_user_input(message)
+                else:
+                    print(f"📄 Получен документ не для админ-панели: {message.document.file_name if message.document else 'N/A'}")
+                    
             except Exception as e:
                 self._handle_critical_error(message.chat.id, f"Ошибка обработки сообщения: {e}")
 
@@ -351,67 +363,6 @@ class TruckServiceManagerBot:
             except Exception as e:
                 self._handle_critical_error(call.message.chat.id, f"Ошибка обработки callback: {e}")
 
-        # ✅ ДОБАВЛЯЕМ ОБРАБОТЧИК ТЕКСТОВЫХ СООБЩЕНИЙ ДЛЯ АДМИН-ПАНЕЛИ
-
-        @self.bot.message_handler(content_types=['text'])
-        def handle_text_messages(message: types.Message) -> None:
-            """Обработка текстовых сообщений для админ-панели"""
-            try:
-                chat_id = message.chat.id
-                print(f"🔍 DEBUG handle_text_messages: получен текст от {chat_id}")
-        
-                # ✅ ПРОСТАЯ ПРОВЕРКА - только новый метод
-                if self.admin_panel.is_awaiting_input(message):
-                    await_type = self.admin_panel.awaiting_input_users.get(chat_id, '')
-                    print(f"🔍 DEBUG: Ожидается ввод типа: '{await_type}'")
-            
-                    # ✅ ТОЛЬКО НОВЫЙ МЕТОД
-                    if await_type == 'add_list_name':
-                        print(f"🔍 DEBUG: Вызываем handle_add_list_name_sync")
-                        self.admin_panel.handle_add_list_name_sync(message)
-                        return
-                    else:
-                        print(f"🔍 DEBUG: Неизвестный тип ожидания: '{await_type}'")
-                
-                # Если это не админ-ввод, обрабатываем как обычное сообщение
-                print(f"🔍 DEBUG: Обрабатываем как обычное сообщение")
-                self.process_user_input(message)
-            
-            except Exception as e:
-                self._handle_critical_error(message.chat.id, f"Ошибка обработки текста: {e}")
-
-        # ✅ ДОБАВЛЯЕМ ОБРАБОТЧИК ДОКУМЕНТОВ ДЛЯ АДМИН-ПАНЕЛИ
-        @self.bot.message_handler(content_types=['document'])
-        def handle_documents(message: types.Message) -> None:
-            """Обработка документов для админ-панели"""
-            try:
-                chat_id = message.chat.id
-                print(f"🔍 DEBUG handle_documents: получен документ от {chat_id}")
-                print(f"🔍 DEBUG: awaiting_input_users: {self.admin_panel.awaiting_input_users}")
-            
-                # Если админ-панель ожидает Excel файл
-                if self.admin_panel.is_awaiting_excel(message):
-                    print(f"🔍 DEBUG: Админ-панель ожидает Excel")
-                    await_type = self.admin_panel.awaiting_input_users.get(chat_id, '')
-                    print(f"🔍 DEBUG: Тип ожидания: '{await_type}'")
-                
-                    if 'add_excel_file:' in await_type:
-                        print(f"🔍 DEBUG: Вызываем handle_add_excel_file_sync")
-                        self.admin_panel.handle_add_excel_file_sync(message)
-                        return
-                    elif 'excel_file:' in await_type:
-                        print(f"🔍 DEBUG: Вызываем handle_excel_file_sync")
-                        self.admin_panel.handle_excel_file_sync(message)
-                        return
-                else:
-                    print(f"🔍 DEBUG: Админ-панель НЕ ожидает Excel")
-                    
-                # Если это не админ-документ, игнорируем
-                print(f"📄 Получен документ не для админ-панели: {message.document.file_name}")
-                
-            except Exception as e:
-                self._handle_critical_error(message.chat.id, f"Ошибка обработки документа: {e}")        
- 
     def _handle_photo_error(self, chat_id: int, error_message: str) -> None:
         """Обработка ошибок при работе с фото"""
         try:
@@ -529,7 +480,7 @@ class TruckServiceManagerBot:
     def debug_show_settings(self, chat_id: int) -> None:
         """Показывает настройки системы"""
         settings_text = f"""
-⚙️ НАСТРОЙКИ СИСТЕМЫ
+⚙️ НАСТРОКИ СИСТЕМЫ
 
 • Режим отладки: {'ВКЛЮЧЕН' if DEBUG_MODE else 'ВЫКЛЮЧЕН'}
 • Чат для уведомлений: {self.chat_id}
@@ -638,30 +589,97 @@ class TruckServiceManagerBot:
         
         print(f"🔍 DEBUG: Нажата кнопка с data='{data}', chat_id={chat_id}")
 
-        # ✅ ДОБАВЛЯЕМ ОБРАБОТЧИК ДЛЯ НОВОЙ КНОПКИ
-        if data == 'admin_add_list':
-            self.bot.answer_callback_query(call.id, "Добавляем новый список...")
-            self.admin_panel.handle_add_list_start_sync(call)
-            return
-    
-        # ✅ ДОБАВЛЯЕМ ОБРАБОТЧИКИ АДМИН-ПАНЕЛИ (В НАЧАЛО МЕТОДА)
+        # ✅ ОБРАБОТЧИКИ АДМИН-ПАНЕЛИ (ВСЕ ВМЕСТЕ В НАЧАЛЕ)
         if data == 'admin_panel':
             self.bot.answer_callback_query(call.id, "Открываю админ-панель...")
             self.admin_panel.show_admin_panel_sync(call)
             return
-    
+
+        if data == 'admin_add_list':
+            self.bot.answer_callback_query(call.id, "Добавляем новый список...")
+            self.admin_panel.handle_add_list_start_sync(call)
+            return
+
         if data == 'admin_manage_lists':
             self.bot.answer_callback_query(call.id, "Управление списками в разработке...")
-            # Пока заглушка
             self.bot.send_message(chat_id, "📋 Управление списками - в разработке 🚧")
             return
-    
+
         if data == 'admin_back':
             self.bot.answer_callback_query(call.id, "Возвращаемся...")
             self.show_section_selection(chat_id)
             return
 
-        # ✅ ПЕРЕНОСИМ ВСЕ ОБРАБОТЧИКИ, КОТОРЫЕ НЕ ТРЕБУЮТ СЕССИИ - ВНАЧАЛЕ
+        # ✅ ОБРАБОТЧИКИ ДЛЯ УПРАВЛЕНИЯ ШАБЛОНАМИ
+        if data == 'admin_manage_templates':
+            self.bot.answer_callback_query(call.id, "Управление шаблонами...")
+            self.admin_panel.show_templates_management_sync(call)
+            return
+
+        if data == 'admin_add_template':
+            print(f"🔍 DEBUG: Вызываем handle_add_template_start_sync для admin_add_template")
+            self.bot.answer_callback_query(call.id, "Добавляем новый шаблон...")
+            self.admin_panel.handle_add_template_start_sync(call)
+            return
+
+        if data == 'admin_refresh_templates':
+            self.bot.answer_callback_query(call.id, "Обновляем список шаблонов...")
+            self.admin_panel.show_templates_management_sync(call)
+            return
+
+        if data == 'admin_back_to_main':
+            self.bot.answer_callback_query(call.id, "Возвращаемся...")
+            self.admin_panel.show_admin_panel_sync(call)
+            return
+
+        # ✅ ОБРАБОТЧИКИ ДЛЯ ПРОСМОТРА И УДАЛЕНИЯ ШАБЛОНОВ
+        if data.startswith('admin_view_template:'):
+            template_id = data.replace('admin_view_template:', '')
+            self.bot.answer_callback_query(call.id, "Загружаем информацию о шаблоне...")
+            self.admin_panel.handle_view_template_sync(call, template_id)
+            return
+
+        if data.startswith('admin_delete_template:'):
+            template_id = data.replace('admin_delete_template:', '')
+            self.bot.answer_callback_query(call.id, "Удаляем шаблон...")
+            self.admin_panel.handle_delete_template_sync(call, template_id)
+            return
+
+        if data.startswith('admin_edit_template:'):
+            template_id = data.replace('admin_edit_template:', '')
+            self.bot.answer_callback_query(call.id, "Редактирование шаблона...")
+            self.bot.send_message(chat_id, "✏️ Редактирование шаблонов - в разработке 🚧")
+            return
+
+        # ✅ ОБРАБОТЧИК ВЫБОРА ШАПКИ
+        if data == 'select_header':
+            if chat_id not in self.user_sessions:
+                self.bot.answer_callback_query(call.id, "❌ Сессия устарела. Начните с /start")
+                return
+                
+            self.bot.answer_callback_query(call.id, "Выбираем шапку документа...")
+            self.ask_header_selection(chat_id)
+            return
+
+        # ✅ ОБРАБОТЧИК ВЫБОРА КОНКРЕТНОГО ШАБЛОНА ШАПКИ
+        if data.startswith('header_'):
+            template_id = data.replace('header_', '')
+            
+            if chat_id not in self.user_sessions:
+                self.bot.answer_callback_query(call.id, "❌ Сессия устарела. Начните с /start")
+                return
+                
+            session = self.user_sessions[chat_id]
+            session['header_template'] = template_id
+            
+            template = self.excel_processor.header_manager.get_template(template_id)
+            template_name = template['name'] if template else "Бриджтаун Фудс"
+            
+            self.bot.answer_callback_query(call.id, f"✅ Выбрано: {template_name}")
+            self.show_materials_selection(chat_id)
+            return
+
+        # ✅ ОБРАБОТЧИКИ DEBUG МЕНЮ
         if data == 'debug_menu':
             self.bot.answer_callback_query(call.id, "Открываю меню отладки...")
             self.show_debug_menu(chat_id)
@@ -691,6 +709,7 @@ class TruckServiceManagerBot:
             self.bot.answer_callback_query(call.id, "📊 Переменные в разработке...")
             self.debug_show_variables(chat_id)
             return
+
         # ✅ ОБРАБОТЧИК ПОЛЬЗОВАТЕЛЬСКИХ СПИСКОВ
         elif data.startswith('custom_list_'):
             list_name = data.replace('custom_list_', '')
@@ -698,31 +717,27 @@ class TruckServiceManagerBot:
             
             self.bot.answer_callback_query(call.id, f"Выбран список: {list_name}")
             
-            # Загружаем работы из этого списка
             works = self.admin_panel.load_works_from_custom_list(list_name)
             
             if works:
-                # ✅ СОЗДАЕМ СЕССИЮ ДЛЯ ПОЛЬЗОВАТЕЛЬСКОГО СПИСКА
-                # Используем специальный идентификатор для пользовательских списков
                 self.user_sessions[chat_id] = {
-                    'section': f'custom_{list_name}',  # Специальный идентификатор
-                    'custom_list': list_name,  # Сохраняем имя списка
+                    'section': f'custom_{list_name}',
+                    'custom_list': list_name,
                     'step': 'license_plate',
                     'selected_works': [],
                     'selected_materials': [],
                     'current_page': 0,
-                    'works': works  # Загруженные работы из списка
+                    'works': works
                 }
                 
-                # ✅ ЗАГРУЖАЕМ МАТЕРИАЛЫ (ОБЩИЕ ДЛЯ ВСЕХ)
-                materials = self.load_materials_from_excel()
+                # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
+                materials = self.materials_repository.get_materials()
                 self.user_sessions[chat_id]['materials'] = materials
                 
                 print(f"🔍 DEBUG: Создана сессия для списка '{list_name}'")
                 print(f"🔍 DEBUG: Работ в сессии: {len(works)}")
                 print(f"🔍 DEBUG: Материалов в сессии: {len(materials)}")
                 
-                # ✅ ЗАПУСКАЕМ ПРОЦЕСС СОЗДАНИЯ ЗАКАЗА
                 self.bot.send_message(
                     chat_id,
                     f"✅ Выбран список: {list_name}\n"
@@ -735,7 +750,8 @@ class TruckServiceManagerBot:
                     f"❌ В списке '{list_name}' нет работ или файл поврежден"
                 )
             return        
-        # ✅ ОБРАБОТЧИК ВЫБОРА РАЗДЕЛА - ТОЖЕ НЕ ТРЕБУЕТ СЕССИИ
+        
+        # ✅ ОБРАБОТЧИК ВЫБОРА РАЗДЕЛА
         elif data.startswith('section_'):
             section_id = data.split('_')[1]
             if section_id in self.sections:
@@ -749,7 +765,8 @@ class TruckServiceManagerBot:
                     'current_page': 0
                 }
                 
-                works = self.load_works_from_excel(section_id)
+                # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
+                works = self.works_repository.get_works(section_id)
                 if not works:
                     self.bot.send_message(
                         chat_id,
@@ -840,7 +857,7 @@ class TruckServiceManagerBot:
             
         elif data == 'skip_materials':
             self.bot.answer_callback_query(call.id, "Использую материалы по умолчанию")
-            session['selected_materials'] = []  # Пустой список = материалы по умолчанию
+            session['selected_materials'] = []
             self.ask_about_photos(chat_id)
             
         elif data == 'add_photos_yes':
@@ -849,7 +866,7 @@ class TruckServiceManagerBot:
             
         elif data == 'add_photos_no':
             self.bot.answer_callback_query(call.id, "Создаю заказ без фото...")
-            self._finalize_order_common(chat_id, has_photos=False)
+            self._finalize_order_common(chat_id, has_photos=False)            
 
     def debug_test_function(self, chat_id: int) -> None:
         """Тестовая функция для отладки - тестируем генерацию Excel"""
@@ -864,11 +881,12 @@ class TruckServiceManagerBot:
                 'order_number': '999',
                 'workers': 'Тестовый Исполнитель',
                 'selected_works': [],
-                'selected_materials': []
+                'selected_materials': [],
+                'header_template': 'bridge_town'  # ✅ ДОБАВЛЯЕМ ШАБЛОН ШАПКИ
             }
             
-            # Загружаем работы и выбираем первые 5
-            works = self.load_works_from_excel('base')
+            # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
+            works = self.works_repository.get_works('base')
             if len(works) >= 5:
                 test_session['selected_works'] = works[:5]
                 works_info = "\n".join([f"• {work[0]} ({work[1]} ч)" for work in works[:5]])
@@ -876,8 +894,8 @@ class TruckServiceManagerBot:
                 test_session['selected_works'] = works
                 works_info = "\n".join([f"• {work[0]} ({work[1]} ч)" for work in works])
             
-            # Загружаем и выбираем ВСЕ материалы
-            materials = self.load_materials_from_excel()
+            # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
+            materials = self.materials_repository.get_materials()
             test_session['selected_materials'] = materials
             materials_info = "\n".join([f"• {material}" for material in materials])
             
@@ -897,6 +915,7 @@ class TruckServiceManagerBot:
 📅 Дата: {test_session['date'].strftime('%d.%m.%Y')}
 🔢 Номер ЗН: {test_session['order_number']}
 👥 Исполнитель: {test_session['workers']}
+🏢 Шаблон шапки: {test_session['header_template']}
 
 📋 РАБОТЫ ({len(test_session['selected_works'])}):
 {works_info}
@@ -943,17 +962,18 @@ class TruckServiceManagerBot:
                 'workers': 'Мордвинов',  # Тестовый исполнитель
                 'selected_works': [],
                 'selected_materials': [],
-                'current_page': 0
+                'current_page': 0,
+                'header_template': 'bridge_town'  # ✅ ДОБАВЛЯЕМ ШАБЛОН ШАПКИ
             }
             
             session = self.user_sessions[chat_id]
             
-            # Загружаем работы для Mercedes
-            works = self.load_works_from_excel('base')
+            # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
+            works = self.works_repository.get_works('base')
             session['works'] = works
             
-            # Загружаем материалы
-            materials = self.load_materials_from_excel()
+            # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
+            materials = self.materials_repository.get_materials()
             session['materials'] = materials
             
             # Выбираем первые 5 работ
@@ -982,6 +1002,7 @@ class TruckServiceManagerBot:
 🔢 Номер ЗН: {session['order_number']}
 👥 Исполнитель: {session['workers']}
 🏗️ Раздел: {self.sections[session['section']]['name']}
+🏢 Шаблон шапки: {session['header_template']}
 
 Выбранные работы ({len(session['selected_works'])}):
 {works_info}
@@ -1126,6 +1147,11 @@ class TruckServiceManagerBot:
             materials_count = len(session.get('selected_materials', []))
             total_hours = sum(hours for _, hours in session['selected_works'])
             
+            # ✅ ПОЛУЧАЕМ ИМЯ ШАБЛОНА ШАПКИ
+            template_id = session.get('header_template', 'bridge_town')
+            template = self.excel_processor.header_manager.get_template(template_id)
+            template_name = template['name'] if template else "Бриджтаун Фудс"
+            
             # ОТПРАВКА ФОТО ЕСЛИ ЕСТЬ
             if has_photos:
                 photo_file_ids = session.get('photo_file_ids', [])
@@ -1150,6 +1176,7 @@ class TruckServiceManagerBot:
 {text_content}
 
 🏗️ Раздел: {section_name}
+🏢 Шаблон: {template_name}
 📊 Работ: {selected_count}
 📦 Материалов: {materials_count}
 ⏱️ Время: {total_hours:.1f} н/ч
@@ -1196,7 +1223,7 @@ class TruckServiceManagerBot:
             
             # Сохраняем в учет (используем имя Excel файла для обратной совместимости)
             excel_filename = documents.get('excel', pathlib.Path()).name
-            accounting_success = self.save_to_accounting(session, excel_filename, photos_text)
+            accounting_success = self.accounting_repository.save_order(session, excel_filename, photos_text)
             
             return True
             
@@ -1220,9 +1247,15 @@ class TruckServiceManagerBot:
         else:
             section_name = self.sections[session['section']]['name']
         
+        # ✅ ПОЛУЧАЕМ ИМЯ ШАБЛОНА ШАПКИ
+        template_id = session.get('header_template', 'bridge_town')
+        template = self.excel_processor.header_manager.get_template(template_id)
+        template_name = template['name'] if template else "Бриджтаун Фудс"
+        
         result_text = f"""✅ Заказ-наряд успешно создан!
 
 🏗️ {section_name}
+🏢 Шаблон: {template_name}
 
 Данные заказа:
 🚗 Госномер: {session['license_plate']}
@@ -1244,16 +1277,41 @@ class TruckServiceManagerBot:
         self.bot.send_message(chat_id, result_text)
 
     # ✅ НОВЫЕ МЕТОДЫ ДЛЯ ОБРАБОТКИ ВВОДА (ШАГ 2)
+
     def process_user_input(self, message: types.Message) -> None:
         """ОСНОВНОЙ ОБРАБОТЧИК ВВОДА ПОЛЬЗОВАТЕЛЯ - ТЕПЕРЬ С РОУТИНГОМ"""
+        print(f"🔍 DEBUG process_user_input: получен текст '{message.text}' от {message.chat.id}")
         chat_id = message.chat.id
         
         # 🔧 ПРОВЕРКА АДМИН-ПАНЕЛИ (первый приоритет)
-        if self.admin_panel.is_awaiting_input(message):
-            if self.admin_panel.is_awaiting_excel(message):
-                self.admin_panel.handle_excel_file_sync(message)
-            else:
+        if hasattr(self, 'admin_panel') and self.admin_panel.is_awaiting_input(message):
+            print(f"🔍 DEBUG: Админ-панель ожидает ввод, передаем управление напрямую")
+            await_type = self.admin_panel.awaiting_input_users.get(chat_id, '')
+            print(f"🔍 DEBUG: Ожидается ввод типа: '{await_type}'")
+        
+            # ✅ ОБРАБОТЧИКИ ДЛЯ ШАБЛОНОВ И СПИСКОВ
+            if await_type == 'add_list_name':
+                print(f"🔍 DEBUG: Вызываем handle_add_list_name_sync")
                 self.admin_panel.handle_add_list_name_sync(message)
+                return
+            elif await_type == 'add_template_id':
+                print(f"🔍 DEBUG: Вызываем handle_add_template_id_sync")
+                self.admin_panel.handle_add_template_id_sync(message)
+                return
+            elif await_type.startswith('add_template_name:'):
+                print(f"🔍 DEBUG: Вызываем handle_add_template_name_sync")
+                self.admin_panel.handle_add_template_name_sync(message)
+                return
+            elif await_type.startswith('add_template_company:'):
+                print(f"🔍 DEBUG: Вызываем handle_add_template_company_sync")
+                self.admin_panel.handle_add_template_company_sync(message)
+                return
+            elif await_type.startswith('add_template_address:'):
+                print(f"🔍 DEBUG: Вызываем handle_add_template_address_sync")
+                self.admin_panel.handle_add_template_address_sync(message)
+                return
+            else:
+                print(f"🔍 DEBUG: Неизвестный тип ожидания: '{await_type}'")
             return
         
         if chat_id not in self.user_sessions:
@@ -1352,6 +1410,46 @@ class TruckServiceManagerBot:
             "👥 Введите исполнителей (через запятую):\nПример: Иванов, Петров"
         )
 
+    def ask_header_selection(self, chat_id: int) -> None:
+        """✅ НОВЫЙ МЕТОД: Запрос выбора шаблона шапки"""
+        try:
+            templates = self.excel_processor.header_manager.get_available_templates()
+            
+            if not templates:
+                # Если шаблонов нет, используем шапку по умолчанию
+                session = self.user_sessions[chat_id]
+                session['header_template'] = 'bridge_town'
+                self.show_materials_selection(chat_id)
+                return
+            
+            markup = types.InlineKeyboardMarkup(row_width=1)
+            
+            for template in templates:
+                markup.add(types.InlineKeyboardButton(
+                    template['name'],
+                    callback_data=f"header_{template['id']}"
+                ))
+            
+            # Кнопка "По умолчанию" для обратной совместимости
+            markup.add(types.InlineKeyboardButton(
+                "🏢 Бриджтаун Фудс (по умолчанию)",
+                callback_data="header_bridge_town"
+            ))
+            
+            self.bot.send_message(
+                chat_id,
+                "🏢 ВЫБЕРИТЕ ШАБЛОН ШАПКИ ДОКУМЕНТА\n\n"
+                "Выберите компанию-заказчика для заказ-наряда:",
+                reply_markup=markup
+            )
+            
+        except Exception as e:
+            print(f"❌ Ошибка выбора шапки: {e}")
+            # При ошибке используем шапку по умолчанию
+            session = self.user_sessions[chat_id]
+            session['header_template'] = 'bridge_town'
+            self.show_materials_selection(chat_id)
+
     def show_works_selection(self, chat_id: int, page: int = 0) -> None:
         """УЛУЧШЕННЫЙ ИНТЕРФЕКС ВЫБОРА РАБОТ"""
         session = self.user_sessions[chat_id]
@@ -1414,14 +1512,16 @@ class TruckServiceManagerBot:
         
         action_buttons = []
         if selected_count > 0:
-            action_buttons.append(types.InlineKeyboardButton("📦 Выбрать материалы", callback_data="select_materials"))
+            # ✅ МЕНЯЕМ КНОПКУ: было "Выбрать материалы" → стало "Выбрать шапку"
+            action_buttons.append(types.InlineKeyboardButton("🏢 Выбрать шапку", callback_data="select_header"))
             action_buttons.append(types.InlineKeyboardButton("🔄 Сбросить работы", callback_data="reset_works"))
         else:
-            action_buttons.append(types.InlineKeyboardButton("📦 Продолжить", callback_data="select_materials"))
+            # ✅ МЕНЯЕМ КНОПКУ: было "Продолжить" → стало "Выбрать шапку"  
+            action_buttons.append(types.InlineKeyboardButton("🏢 Выбрать шапку", callback_data="select_header"))
         
         markup.row(*action_buttons)
         
-        self.bot.send_message(chat_id, text, reply_markup=markup)
+        self.bot.send_message(chat_id, text, reply_markup=markup)        
 
     def show_materials_selection(self, chat_id: int, page: int = 0) -> None:
         """ИНТЕРФЕЙС ВЫБОРА МАТЕРИАЛОВ"""
@@ -1429,7 +1529,8 @@ class TruckServiceManagerBot:
         
         # Загружаем материалы если еще не загружены
         if 'materials' not in session:
-            materials = self.load_materials_from_excel()
+            # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
+            materials = self.materials_repository.get_materials()
             session['materials'] = materials
         else:
             materials = session['materials']
@@ -1548,10 +1649,12 @@ class TruckServiceManagerBot:
         
         action_buttons = []
         if selected_count > 0:
-            action_buttons.append(types.InlineKeyboardButton("📦 Выбрать материалы", callback_data="select_materials"))
+            # ✅ МЕНЯЕМ КНОПКУ: было "Выбрать материалы" → стало "Выбрать шапку"
+            action_buttons.append(types.InlineKeyboardButton("🏢 Выбрать шапку", callback_data="select_header"))
             action_buttons.append(types.InlineKeyboardButton("🔄 Сбросить работы", callback_data="reset_works"))
         else:
-            action_buttons.append(types.InlineKeyboardButton("📦 Продолжить", callback_data="select_materials"))
+            # ✅ МЕНЯЕМ КНОПКУ: было "Продолжить" → стало "Выбрать шапку"  
+            action_buttons.append(types.InlineKeyboardButton("🏢 Выбрать шапку", callback_data="select_header"))
         
         markup.row(*action_buttons)
         

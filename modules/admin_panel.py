@@ -1,6 +1,7 @@
 import pathlib
 import logging
-from typing import Dict, List
+import json
+import re  # ✅ ДОБАВЛЯЕМ ДЛЯ ВАЛИДАЦИИ ID ШАБЛОНОВ
 from typing import Dict, List, Tuple
 from telebot import types
 
@@ -10,6 +11,8 @@ class AdminPanel:
     def __init__(self, bot_instance=None):
         self.custom_lists_path = pathlib.Path("Пользовательские_списки")
         self.custom_lists_path.mkdir(exist_ok=True)
+        self.header_templates_path = pathlib.Path("Шаблоны") / "header_templates"
+        self.header_templates_path.mkdir(parents=True, exist_ok=True)
         self.awaiting_input_users: Dict[int, str] = {}  # user_id -> тип ожидаемого ввода
         self.bot = bot_instance
         print("✅ AdminPanel инициализирован")
@@ -32,7 +35,7 @@ class AdminPanel:
         return message.chat.id in self.awaiting_input_users
 
     def show_admin_panel_sync(self, call):
-        """Обновленная админ-панель с одной кнопкой добавления"""
+        """Обновленная админ-панель с кнопками управления шаблонами"""
         print(f"🔍 DEBUG show_admin_panel_sync: bot={self.bot is not None}")
         if not self.bot:
             print("❌ DEBUG: bot instance not set")
@@ -41,6 +44,7 @@ class AdminPanel:
         keyboard = [
             [types.InlineKeyboardButton("➕ ДОБАВИТЬ СПИСОК", callback_data="admin_add_list")],
             [types.InlineKeyboardButton("📋 УПРАВЛЕНИЕ СПИСКАМИ", callback_data="admin_manage_lists")],
+            [types.InlineKeyboardButton("🏢 УПРАВЛЕНИЕ ШАБЛОНАМИ", callback_data="admin_manage_templates")],
             [types.InlineKeyboardButton("🔙 НАЗАД", callback_data="admin_back")]
         ]
         reply_markup = types.InlineKeyboardMarkup(keyboard)
@@ -52,6 +56,304 @@ class AdminPanel:
             reply_markup=reply_markup
         )
         print("✅ DEBUG: Админ-панель показана")
+
+    def show_templates_management_sync(self, call):
+        """Панель управления шаблонами шапок"""
+        if not self.bot:
+            return
+            
+        templates = self._load_header_templates()
+        
+        keyboard = []
+        
+        for template_id, template_data in templates.items():
+            keyboard.append([
+                types.InlineKeyboardButton(
+                    f"📄 {template_data['name']}", 
+                    callback_data=f"admin_view_template:{template_id}"
+                )
+            ])
+        
+        keyboard.append([
+            types.InlineKeyboardButton("➕ ДОБАВИТЬ ШАБЛОН", callback_data="admin_add_template"),
+            types.InlineKeyboardButton("🔄 ОБНОВИТЬ СПИСОК", callback_data="admin_refresh_templates")
+        ])
+        keyboard.append([
+            types.InlineKeyboardButton("🔙 НАЗАД", callback_data="admin_back_to_main")
+        ])
+        
+        reply_markup = types.InlineKeyboardMarkup(keyboard)
+        
+        try:
+            self.bot.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=f"🏢 УПРАВЛЕНИЕ ШАБЛОНАМИ ШАПОК\n\nДоступно шаблонов: {len(templates)}\n\nВыберите шаблон для просмотра или действие:",
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            if "message is not modified" not in str(e):
+                # Игнорируем ошибку "message is not modified"
+                print(f"⚠️ Ошибка обновления сообщения: {e}")
+
+    def _load_header_templates(self) -> Dict[str, Dict]:
+        """Загрузка всех шаблонов шапок"""
+        templates = {}
+        try:
+            template_files = list(self.header_templates_path.glob("*.json"))
+            for template_file in template_files:
+                try:
+                    with open(template_file, 'r', encoding='utf-8') as f:
+                        template_data = json.load(f)
+                        templates[template_data['id']] = template_data
+                except Exception as e:
+                    print(f"❌ Ошибка загрузки шаблона {template_file}: {e}")
+        except Exception as e:
+            print(f"❌ Ошибка загрузки шаблонов: {e}")
+        
+        return templates
+
+    def _save_header_template(self, template_data: Dict) -> bool:
+        """Сохранение шаблона шапки"""
+        try:
+            template_file = self.header_templates_path / f"{template_data['id']}.json"
+            with open(template_file, 'w', encoding='utf-8') as f:
+                json.dump(template_data, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            print(f"❌ Ошибка сохранения шаблона: {e}")
+            return False
+
+    def handle_add_template_start_sync(self, call):
+        """Начало добавления нового шаблона"""
+        print(f"🔍 DEBUG: handle_add_template_start_sync вызван")
+        if not self.bot:
+            return
+            
+        chat_id = call.message.chat.id
+        print(f"🔍 DEBUG: Устанавливаем awaiting_input_users[{chat_id}] = 'add_template_id'")
+        self.awaiting_input_users[chat_id] = 'add_template_id'
+        print(f"🔍 DEBUG: awaiting_input_users после установки: {self.awaiting_input_users}")
+        
+        self.bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text="🏢 ДОБАВЛЕНИЕ НОВОГО ШАБЛОНА\n\nВведите уникальный ID для шаблона (латинские буквы и цифры):\nПример: company_b, client_123"
+        )
+
+    def handle_add_template_id_sync(self, message):
+        """Обработка ввода ID шаблона"""
+        if not self.bot:
+            return
+            
+        chat_id = message.chat.id
+        
+        if chat_id not in self.awaiting_input_users or self.awaiting_input_users[chat_id] != 'add_template_id':
+            return
+            
+        template_id = message.text.strip().lower()
+        
+        # Валидация ID
+        if not template_id or not re.match(r'^[a-z0-9_]+$', template_id):
+            self.bot.send_message(chat_id, "❌ ID шаблона должен содержать только латинские буквы, цифры и подчеркивания")
+            return
+            
+        # Проверяем, не существует ли уже шаблон с таким ID
+        templates = self._load_header_templates()
+        if template_id in templates:
+            self.bot.send_message(chat_id, f"❌ Шаблон с ID '{template_id}' уже существует")
+            return
+            
+        # Сохраняем ID и переходим к вводу названия
+        self.awaiting_input_users[chat_id] = f'add_template_name:{template_id}'
+        
+        self.bot.send_message(
+            chat_id,
+            f"✅ ID шаблона: {template_id}\n\nТеперь введите название шаблона:\nПример: 🏭 Компания Б, 🏢 Клиент ООО"
+        )
+
+    def handle_add_template_name_sync(self, message):
+        """Обработка ввода названия шаблона"""
+        if not self.bot:
+            return
+            
+        chat_id = message.chat.id
+        
+        if chat_id not in self.awaiting_input_users or not self.awaiting_input_users[chat_id].startswith('add_template_name:'):
+            return
+            
+        # Получаем ID шаблона
+        full_status = self.awaiting_input_users[chat_id]
+        template_id = full_status.split(':')[1]
+        template_name = message.text.strip()
+        
+        if not template_name or len(template_name) < 2:
+            self.bot.send_message(chat_id, "❌ Название шаблона должно содержать минимум 2 символа")
+            return
+            
+        # Сохраняем название и переходим к вводу компании заказчика
+        self.awaiting_input_users[chat_id] = f'add_template_company:{template_id}:{template_name}'
+        
+        self.bot.send_message(
+            chat_id,
+            f"✅ Название: {template_name}\n\nТеперь введите название компании-заказчика:\nПример: ООО «Компания Б», ЗАО «Клиент ООО»"
+        )
+
+    def handle_add_template_company_sync(self, message):
+        """Обработка ввода компании заказчика"""
+        if not self.bot:
+            return
+            
+        chat_id = message.chat.id
+        
+        if chat_id not in self.awaiting_input_users or not self.awaiting_input_users[chat_id].startswith('add_template_company:'):
+            return
+            
+        # Получаем данные шаблона
+        full_status = self.awaiting_input_users[chat_id]
+        parts = full_status.split(':')
+        template_id = parts[1]
+        template_name = parts[2]
+        company_name = message.text.strip()
+        
+        if not company_name or len(company_name) < 2:
+            self.bot.send_message(chat_id, "❌ Название компании должно содержать минимум 2 символа")
+            return
+            
+        # Сохраняем компанию и переходим к вводу адреса
+        self.awaiting_input_users[chat_id] = f'add_template_address:{template_id}:{template_name}:{company_name}'
+        
+        self.bot.send_message(
+            chat_id,
+            f"✅ Компания: {company_name}\n\nТеперь введите адрес компании:\nПример: 600026, г. Владимир, ул. Ленина д. 1"
+        )
+
+    def handle_add_template_address_sync(self, message):
+        """Обработка ввода адреса и завершение создания шаблона"""
+        if not self.bot:
+            return
+            
+        chat_id = message.chat.id
+        
+        if chat_id not in self.awaiting_input_users or not self.awaiting_input_users[chat_id].startswith('add_template_address:'):
+            return
+            
+        # Получаем данные шаблона
+        full_status = self.awaiting_input_users[chat_id]
+        parts = full_status.split(':')
+        template_id = parts[1]
+        template_name = parts[2]
+        company_name = parts[3]
+        address = message.text.strip()
+        
+        if not address or len(address) < 5:
+            self.bot.send_message(chat_id, "❌ Адрес должен содержать минимум 5 символов")
+            return
+            
+        # Создаем шаблон
+        template_data = {
+            "id": template_id,
+            "name": template_name,
+            "customer": {
+                "company": company_name,
+                "address": address
+            },
+            "contractor": {
+                "company": "ИП Айрапетян Кристина Тиграновна",
+                "address": "600033, Владимирская обл., г. Владимир, ул. Сущевская, д. 7, кв. 152",
+                "inn": "234206956031",
+                "ogrnip": "321332800018501",
+                "email": "airanetan93@gmail.com",
+                "phone": "+79190130122"
+            },
+            "default_vehicle": "Грузовой автомобиль"
+        }
+        
+        # Сохраняем шаблон
+        success = self._save_header_template(template_data)
+        
+        if success:
+            del self.awaiting_input_users[chat_id]
+            self.bot.send_message(
+                chat_id,
+                f"✅ Шаблон '{template_name}' успешно создан!\n\n"
+                f"🏢 Компания: {company_name}\n"
+                f"📍 Адрес: {address}\n\n"
+                f"Шаблон теперь доступен при создании заказ-нарядов."
+            )
+        else:
+            self.bot.send_message(chat_id, "❌ Ошибка при создании шаблона")
+            del self.awaiting_input_users[chat_id]
+
+    def handle_view_template_sync(self, call, template_id: str):
+        """Просмотр информации о шаблоне"""
+        if not self.bot:
+            return
+            
+        templates = self._load_header_templates()
+        template = templates.get(template_id)
+        
+        if not template:
+            self.bot.answer_callback_query(call.id, "❌ Шаблон не найден")
+            return
+            
+        customer = template['customer']
+        contractor = template['contractor']
+        
+        template_info = f"""
+📄 ШАБЛОН: {template['name']}
+🆔 ID: {template['id']}
+
+🏢 ЗАКАЗЧИК:
+Компания: {customer['company']}
+Адрес: {customer['address']}
+
+👤 ИСПОЛНИТЕЛЬ:
+{contractor['company']}
+ИНН: {contractor['inn']}
+ОГРНИП: {contractor['ogrnip']}
+Адрес: {contractor['address']}
+Телефон: {contractor['phone']}
+Email: {contractor['email']}
+
+🚗 Автомобиль по умолчанию: {template.get('default_vehicle', 'Грузовой автомобиль')}
+        """
+        
+        keyboard = [
+            [types.InlineKeyboardButton("✏️ РЕДАКТИРОВАТЬ", callback_data=f"admin_edit_template:{template_id}")],
+            [types.InlineKeyboardButton("🗑️ УДАЛИТЬ", callback_data=f"admin_delete_template:{template_id}")],
+            [types.InlineKeyboardButton("🔙 НАЗАД", callback_data="admin_manage_templates")]
+        ]
+        
+        reply_markup = types.InlineKeyboardMarkup(keyboard)
+        
+        self.bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=template_info,
+            reply_markup=reply_markup
+        )
+
+    def handle_delete_template_sync(self, call, template_id: str):
+        """Удаление шаблона"""
+        if not self.bot:
+            return
+            
+        templates = self._load_header_templates()
+        template = templates.get(template_id)
+        
+        if not template:
+            self.bot.answer_callback_query(call.id, "❌ Шаблон не найден")
+            return
+            
+        # Удаляем файл шаблона
+        template_file = self.header_templates_path / f"{template_id}.json"
+        try:
+            template_file.unlink(missing_ok=True)
+            self.bot.answer_callback_query(call.id, f"✅ Шаблон '{template['name']}' удален")
+            self.show_templates_management_sync(call)
+        except Exception as e:
+            self.bot.answer_callback_query(call.id, f"❌ Ошибка удаления шаблона: {e}")
 
     def handle_add_list_start_sync(self, call):
         """Начало добавления списка (объединенная логика)"""
@@ -579,6 +881,19 @@ class AdminPanel:
         # ✅ ОБНОВЛЯЕМ ОБРАБОТЧИКИ - РЕГИСТРИРУЕМ НОВЫЕ
         application.add_handler(types.CallbackQueryHandler(self.handle_add_list_start_sync, func=lambda call: call.data == 'admin_add_list'))
         application.add_handler(types.CallbackQueryHandler(self.show_admin_panel_sync, func=lambda call: call.data == 'admin_back'))
+        application.add_handler(types.CallbackQueryHandler(self.show_admin_panel_sync, func=lambda call: call.data == 'admin_back_to_main'))
+        application.add_handler(types.CallbackQueryHandler(self.show_templates_management_sync, func=lambda call: call.data == 'admin_manage_templates'))
+        application.add_handler(types.CallbackQueryHandler(self.handle_add_template_start_sync, func=lambda call: call.data == 'admin_add_template'))
+        
+        # ✅ ОБРАБОТЧИКИ ДЛЯ ПРОСМОТРА И УДАЛЕНИЯ ШАБЛОНОВ
+        application.add_handler(types.CallbackQueryHandler(
+            lambda call: self.handle_view_template_sync(call, call.data.split(':')[1]), 
+            func=lambda call: call.data.startswith('admin_view_template:')
+        ))
+        application.add_handler(types.CallbackQueryHandler(
+            lambda call: self.handle_delete_template_sync(call, call.data.split(':')[1]), 
+            func=lambda call: call.data.startswith('admin_delete_template:')
+        ))
         
 # Инициализация админ-панели
-admin_panel = AdminPanel()
+# admin_panel = AdminPanel()

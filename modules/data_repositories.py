@@ -10,6 +10,7 @@ import pathlib
 from typing import List, Tuple, Optional, Dict, Any
 from abc import ABC, abstractmethod
 import logging
+import datetime
 
 # ✅ БАЗОВЫЕ ИСКЛЮЧЕНИЯ ДЛЯ РЕПОЗИТОРИЕВ
 class RepositoryError(Exception):
@@ -265,11 +266,16 @@ class ExcelAccountingRepository(AccountingRepository):
         
         # Инициализируем файлы учета
         self._initialize_accounting_files()
-    
+
     def save_order(self, session: Dict[str, Any], excel_filename: str, has_photos: str) -> bool:
         """Сохранить заказ в учет"""
         try:
             section_id = session['section']
+            
+            # ✅ ОБРАБОТКА ПОЛЬЗОВАТЕЛЬСКИХ СПИСКОВ
+            if section_id.startswith('custom_'):
+                # Для пользовательских списков используем базовый учет
+                section_id = 'base'
             
             # Сохраняем в раздельный учет
             section_accounting_file = self.sections_config[section_id]['folder'] / "Учет" / "учет_заказов.xlsx"
