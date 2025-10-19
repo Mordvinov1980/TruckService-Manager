@@ -58,7 +58,7 @@ ps aux | grep python
 
 # Restart bot
 pkill -f "python3 bot.py"
-cd TruckService-Manager
+cd TruckService_Manager
 python3 bot.py
 Recommended Cloud Providers
 Beepingeer - от 50 руб/месяц (специально для ботов)
