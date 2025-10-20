@@ -651,15 +651,8 @@ class TruckServiceManagerBot:
             self.bot.send_message(chat_id, "✏️ Редактирование шаблонов - в разработке 🚧")
             return
 
-        # ✅ ОБРАБОТЧИК ВЫБОРА ШАПКИ
-        if data == 'select_header':
-            if chat_id not in self.user_sessions:
-                self.bot.answer_callback_query(call.id, "❌ Сессия устарела. Начните с /start")
-                return
-                
-            self.bot.answer_callback_query(call.id, "Выбираем шапку документа...")
-            self.ask_header_selection(chat_id)
-            return
+        # ✅ ОБРАБОТЧИК ВЫБОРА ШАПКИ - УДАЛЕН ИЗ ИНТЕРФЕЙСА РАБОТ
+        # if data == 'select_header':  # ❌ УДАЛЕНО - шапка выбирается раньше
 
         # ✅ ОБРАБОТЧИК ВЫБОРА КОНКРЕТНОГО ШАБЛОНА ШАПКИ
         if data.startswith('header_'):
@@ -676,7 +669,12 @@ class TruckServiceManagerBot:
             template_name = template['name'] if template else "Бриджтаун Фудс"
             
             self.bot.answer_callback_query(call.id, f"✅ Выбрано: {template_name}")
-            self.show_materials_selection(chat_id)
+            
+            # ✅ ДОБАВИТЬ ЭТУ СТРОЧКУ - УСТАНОВИТЬ ШАГ ДЛЯ ОБРАБОТКИ ВВОДА
+            session['step'] = 'license_plate'
+
+            # ✅ ПОСЛЕ ВЫБОРА ШАПКИ - ПЕРЕХОД К ВВОДУ ДАННЫХ ЗАКАЗА
+            self.ask_license_plate(chat_id)
             return
 
         # ✅ ОБРАБОТЧИКИ DEBUG МЕНЮ
@@ -723,7 +721,7 @@ class TruckServiceManagerBot:
                 self.user_sessions[chat_id] = {
                     'section': f'custom_{list_name}',
                     'custom_list': list_name,
-                    'step': 'license_plate',
+                    'step': 'selecting_header',  # ✅ НОВЫЙ ШАГ - выбор шапки
                     'selected_works': [],
                     'selected_materials': [],
                     'current_page': 0,
@@ -738,12 +736,8 @@ class TruckServiceManagerBot:
                 print(f"🔍 DEBUG: Работ в сессии: {len(works)}")
                 print(f"🔍 DEBUG: Материалов в сессии: {len(materials)}")
                 
-                self.bot.send_message(
-                    chat_id,
-                    f"✅ Выбран список: {list_name}\n"
-                    f"📊 Загружено работ: {len(works)}\n\n"
-                    f"🏗️ Создание заказ-наряда\n\nВведите госномер автомобиля:\nПример: А123ВС77 или 1234АВ"
-                )
+                # ✅ ПОСЛЕ ВЫБОРА СПИСКА - СРАЗУ ПЕРЕХОД К ВЫБОРУ ШАПКИ
+                self.ask_header_selection(chat_id)
             else:
                 self.bot.send_message(
                     chat_id,
@@ -759,7 +753,7 @@ class TruckServiceManagerBot:
                 
                 self.user_sessions[chat_id] = {
                     'section': section_id,
-                    'step': 'license_plate',
+                    'step': 'selecting_header',  # ✅ НОВЫЙ ШАГ - выбор шапки перед данными
                     'selected_works': [],
                     'selected_materials': [],
                     'current_page': 0
@@ -776,11 +770,8 @@ class TruckServiceManagerBot:
                 
                 self.user_sessions[chat_id]['works'] = works
                 
-                section_name = self.sections[section_id]['name']
-                self.bot.send_message(
-                    chat_id,
-                    f"🏗️ {section_name}\n\n📋 Создание нового заказ-наряда\n\nВведите госномер автомобиля:\nПример: А123ВС77 или 1234АВ"
-                )
+                # ✅ ПОСЛЕ ВЫБОРА РАЗДЕЛА - СРАЗУ ПЕРЕХОД К ВЫБОРУ ШАПКИ
+                self.ask_header_selection(chat_id)
             return
         
         # ✅ ТЕПЕРЬ ПРОВЕРКА СЕССИИ - только для work_, page_, create_order и т.д.
@@ -1182,7 +1173,7 @@ class TruckServiceManagerBot:
 ⏱️ Время: {total_hours:.1f} н/ч
 📸 Фото: {photo_status}
 
-✅ Создан через @TruckServiceManager_bot
+✅ Создан через @TSM_Auto_bot
             """
             
             self.bot.send_message(self.chat_id, chat_message)
@@ -1377,6 +1368,20 @@ class TruckServiceManagerBot:
         else:
             self.bot.send_message(message.chat.id, result)
 
+    def ask_license_plate(self, chat_id: int) -> None:
+        """Запрос госномера после выбора шапки"""
+        # ✅ ОПРЕДЕЛЯЕМ ИМЯ РАЗДЕЛА: стандартный ИЛИ пользовательский
+        session = self.user_sessions[chat_id]
+        if session['section'].startswith('custom_'):
+            section_name = f"📁 {session['custom_list']}"
+        else:
+            section_name = self.sections[session['section']]['name']
+            
+        self.bot.send_message(
+            chat_id,
+            f"🏗️ {section_name}\n\n📋 Создание нового заказ-наряда\n\nВведите госномер автомобиля:\nПример: А123ВС77 или 1234АВ"
+        )
+
     def ask_date(self, chat_id: int) -> None:
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         
@@ -1411,7 +1416,7 @@ class TruckServiceManagerBot:
         )
 
     def ask_header_selection(self, chat_id: int) -> None:
-        """✅ НОВЫЙ МЕТОД: Запрос выбора шаблона шапки"""
+        """✅ НОВЫЙ МЕТОД: Запрос выбора шаблона шапки ПОСЛЕ ВЫБОРА РАЗДЕЛА"""
         try:
             templates = self.excel_processor.header_manager.get_available_templates()
             
@@ -1419,7 +1424,7 @@ class TruckServiceManagerBot:
                 # Если шаблонов нет, используем шапку по умолчанию
                 session = self.user_sessions[chat_id]
                 session['header_template'] = 'bridge_town'
-                self.show_materials_selection(chat_id)
+                self.ask_license_plate(chat_id)  # ✅ ПЕРЕХОД К ВВОДУ ДАННЫХ
                 return
             
             markup = types.InlineKeyboardMarkup(row_width=1)
@@ -1448,10 +1453,10 @@ class TruckServiceManagerBot:
             # При ошибке используем шапку по умолчанию
             session = self.user_sessions[chat_id]
             session['header_template'] = 'bridge_town'
-            self.show_materials_selection(chat_id)
+            self.ask_license_plate(chat_id)
 
     def show_works_selection(self, chat_id: int, page: int = 0) -> None:
-        """УЛУЧШЕННЫЙ ИНТЕРФЕКС ВЫБОРА РАБОТ"""
+        """УЛУЧШЕННЫЙ ИНТЕРФЕЙС ВЫБОРА РАБОТ БЕЗ КНОПКИ ВЫБОРА ШАПКИ"""
         session = self.user_sessions[chat_id]
         session['current_page'] = page
         
@@ -1512,12 +1517,12 @@ class TruckServiceManagerBot:
         
         action_buttons = []
         if selected_count > 0:
-            # ✅ МЕНЯЕМ КНОПКУ: было "Выбрать материалы" → стало "Выбрать шапку"
-            action_buttons.append(types.InlineKeyboardButton("🏢 Выбрать шапку", callback_data="select_header"))
+            # ✅ УБРАНА КНОПКА "Выбрать шапку" - шапка выбирается раньше
+            action_buttons.append(types.InlineKeyboardButton("📦 К материалам", callback_data="select_materials"))
             action_buttons.append(types.InlineKeyboardButton("🔄 Сбросить работы", callback_data="reset_works"))
         else:
-            # ✅ МЕНЯЕМ КНОПКУ: было "Продолжить" → стало "Выбрать шапку"  
-            action_buttons.append(types.InlineKeyboardButton("🏢 Выбрать шапку", callback_data="select_header"))
+            # ✅ УБРАНА КНОПКА "Выбрать шапку" - шапка выбирается раньше
+            action_buttons.append(types.InlineKeyboardButton("📦 К материалам", callback_data="select_materials"))
         
         markup.row(*action_buttons)
         
@@ -1649,12 +1654,12 @@ class TruckServiceManagerBot:
         
         action_buttons = []
         if selected_count > 0:
-            # ✅ МЕНЯЕМ КНОПКУ: было "Выбрать материалы" → стало "Выбрать шапку"
-            action_buttons.append(types.InlineKeyboardButton("🏢 Выбрать шапку", callback_data="select_header"))
+            # ✅ УБРАНА КНОПКА "Выбрать шапку" - шапка выбирается раньше
+            action_buttons.append(types.InlineKeyboardButton("📦 К материалам", callback_data="select_materials"))
             action_buttons.append(types.InlineKeyboardButton("🔄 Сбросить работы", callback_data="reset_works"))
         else:
-            # ✅ МЕНЯЕМ КНОПКУ: было "Продолжить" → стало "Выбрать шапку"  
-            action_buttons.append(types.InlineKeyboardButton("🏢 Выбрать шапку", callback_data="select_header"))
+            # ✅ УБРАНА КНОПКА "Выбрать шапку" - шапка выбирается раньше
+            action_buttons.append(types.InlineKeyboardButton("📦 К материалам", callback_data="select_materials"))
         
         markup.row(*action_buttons)
         
