@@ -271,9 +271,24 @@ class AdminPanel:
         
         # Сохраняем шаблон
         success = self._save_header_template(template_data)
+
+        # ✅ ОТЛАДОЧНАЯ ПЕЧАТЬ
+        print(f"🔍 DEBUG: Шаблон создан: {success}")
+        print(f"🔍 DEBUG: excel_processor доступен: {hasattr(self, 'excel_processor')}")
+        if hasattr(self, 'excel_processor'):
+            print(f"🔍 DEBUG: header_manager доступен: {hasattr(self.excel_processor, 'header_manager')}")
         
         if success:
-            del self.awaiting_input_users[chat_id]
+            # ✅ ВАЖНО: УДАЛИТЬ ПОЛЬЗОВАТЕЛЯ ИЗ ОЖИДАНИЯ ПЕРВЫМ ДЕЛОМ
+            if chat_id in self.awaiting_input_users:
+                del self.awaiting_input_users[chat_id]
+            
+            # ✅ ПЕРЕЗАГРУЗИТЬ ШАБЛОНЫ В ОСНОВНОМ БОТЕ
+            if hasattr(self, 'excel_processor'):
+                print("🔄 Вызываем reload_templates...")
+                self.excel_processor.header_manager.reload_templates()
+            
+            # ✅ ОТПРАВИТЬ СООБЩЕНИЕ О УСПЕХЕ
             self.bot.send_message(
                 chat_id,
                 f"✅ Шаблон '{template_name}' успешно создан!\n\n"
@@ -281,6 +296,25 @@ class AdminPanel:
                 f"📍 Адрес: {address}\n\n"
                 f"Шаблон теперь доступен при создании заказ-нарядов."
             )
+            
+            # ✅ ВОЗВРАТ В ГЛАВНОЕ МЕНЮ АДМИН-ПАНЕЛИ
+            keyboard = [
+                [types.InlineKeyboardButton("➕ ДОБАВИТЬ СПИСОК", callback_data="admin_add_list")],
+                [types.InlineKeyboardButton("📋 УПРАВЛЕНИЕ СПИСКАМИ", callback_data="admin_manage_lists")],
+                [types.InlineKeyboardButton("🏢 УПРАВЛЕНИЕ ШАБЛОНАМИ", callback_data="admin_manage_templates")],
+                [types.InlineKeyboardButton("🔙 НАЗАД", callback_data="admin_back")]
+            ]
+            reply_markup = types.InlineKeyboardMarkup(keyboard)
+            
+            self.bot.send_message(
+                chat_id,
+                "👨‍💻 АДМИН ПАНЕЛЬ\n\nВыберите действие:",
+                reply_markup=reply_markup
+            )
+            
+            # ✅ ВАЖНО: ВЕРНУТЬ УПРАВЛЕНИЕ, ЧТОБЫ ИЗБЕЖАТЬ ДАЛЬНЕЙШЕЙ ОБРАБОТКИ
+            return
+
         else:
             self.bot.send_message(chat_id, "❌ Ошибка при создании шаблона")
             del self.awaiting_input_users[chat_id]
@@ -345,13 +379,19 @@ Email: {contractor['email']}
         if not template:
             self.bot.answer_callback_query(call.id, "❌ Шаблон не найден")
             return
-            
+
         # Удаляем файл шаблона
         template_file = self.header_templates_path / f"{template_id}.json"
         try:
             template_file.unlink(missing_ok=True)
+            
+            # ✅ ПЕРЕЗАГРУЗИТЬ ШАБЛОНЫ В ОСНОВНОМ БОТЕ
+            if hasattr(self, 'excel_processor'):
+                self.excel_processor.header_manager.reload_templates()
+            
             self.bot.answer_callback_query(call.id, f"✅ Шаблон '{template['name']}' удален")
             self.show_templates_management_sync(call)
+
         except Exception as e:
             self.bot.answer_callback_query(call.id, f"❌ Ошибка удаления шаблона: {e}")
 

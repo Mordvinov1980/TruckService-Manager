@@ -87,6 +87,9 @@ class TruckServiceManagerBot:
         
         # ✅ СОЗДАЕМ АДМИН-ПАНЕЛЬ ПОСЛЕ setup_handlers()
         self.admin_panel = AdminPanel(self.bot)
+        # ✅ ПЕРЕДАЕМ EXCEL_PROCESSOR В АДМИН-ПАНЕЛЬ
+        self.admin_panel.excel_processor = self.excel_processor
+
         # ✅ РЕГИСТРИРУЕМ ОБРАБОТЧИКИ АДМИН-ПАНЕЛИ
         ##self.admin_panel.register_handlers(self.bot)
         
@@ -185,6 +188,88 @@ class TruckServiceManagerBot:
             
         except Exception as e:
             raise FileSystemError(f"Ошибка создания структуры папок: {e}") from e
+
+    # ✅ ДОБАВЛЕНЫ МЕТОДЫ ВАЛИДАЦИИ
+    def validate_license_plate(self, text: str) -> bool:
+        """Валидация госномера автомобиля"""
+        if not text or len(text) < 2:
+            return False
+            
+        # Паттерны для российских госномеров
+        patterns = [
+            r'^[АВЕКМНОРСТУХ]{1}\d{3}[АВЕКМНОРСТУХ]{2}\d{2,3}$',  # Стандартный: А123ВС77
+            r'^\d{4}[АВЕКМНОРСТУХ]{2}\d{2,3}$',  # Формат: 1234АВ77
+            r'^[АВЕКМНОРСТУХ]{2}\d{3}\d{2,3}$',  # Формат: АА12377
+        ]
+        
+        text_upper = text.upper().replace(' ', '')
+        
+        for pattern in patterns:
+            if re.match(pattern, text_upper):
+                return True
+                
+        return False
+
+    def validate_date(self, text: str) -> Tuple[bool, Union[datetime.datetime, str]]:
+        """Валидация даты - РАЗРЕШАЕМ БУДУЩИЕ ДАТЫ"""
+        try:
+            # Пробуем разные форматы дат
+            formats = ['%d.%m.%Y', '%d/%m/%Y', '%d-%m-%Y', '%Y.%m.%d', '%Y/%m/%d', '%Y-%m-%d']
+            
+            for fmt in formats:
+                try:
+                    date_obj = datetime.datetime.strptime(text.strip(), fmt)
+                    # ✅ УБИРАЕМ ПРОВЕРКУ НА БУДУЩЕЕ - разрешаем любые даты
+                    return True, date_obj
+                except ValueError:
+                    continue
+                    
+            return False, "❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ"
+            
+        except Exception as e:
+            return False, f"❌ Ошибка обработки даты: {e}" 
+
+    def validate_order_number(self, text: str) -> Tuple[bool, Union[str, str]]:
+        """Валидация номера заказа"""
+        try:
+            text_clean = text.strip()
+            
+            if not text_clean:
+                return False, "❌ Номер заказа не может быть пустым"
+                
+            if not text_clean.isdigit():
+                return False, "❌ Номер заказа должен содержать только цифры"
+                
+            if len(text_clean) > 10:
+                return False, "❌ Номер заказа слишком длинный"
+                
+            return True, text_clean
+            
+        except Exception as e:
+            return False, f"❌ Ошибка обработки номера заказа: {e}"
+
+    def validate_workers(self, text: str) -> Tuple[bool, Union[str, str]]:
+        """Валидация списка исполнителей"""
+        try:
+            text_clean = text.strip()
+            
+            if not text_clean:
+                return False, "❌ Список исполнителей не может быть пустым"
+                
+            if len(text_clean) < 2:
+                return False, "❌ Слишком короткий список исполнителей"
+                
+            if len(text_clean) > 200:
+                return False, "❌ Слишком длинный список исполнителей"
+                
+            # Проверяем на наличие только разрешенных символов
+            if re.search(r'[<>{}[\]~]', text_clean):
+                return False, "❌ Недопустимые символы в списке исполнителей"
+                
+            return True, text_clean
+            
+        except Exception as e:
+            return False, f"❌ Ошибка обработки списка исполнителей: {e}"
 
     def setup_handlers(self) -> None:
         """Настройка обработчиков с улучшенной обработкой ошибок"""
@@ -436,20 +521,18 @@ class TruckServiceManagerBot:
         )    
        
     def show_debug_menu(self, chat_id: int) -> None:
-        """Показывает меню отладки с тестовыми данными"""
+        """Показывает оптимизированное меню отладки"""
         print(f"🔍 DEBUG: show_debug_menu вызван для chat_id={chat_id}")
         
         try:
             markup = types.InlineKeyboardMarkup()
             
-            # Кнопки меню отладки
+            # ✅ ОПТИМИЗИРОВАННЫЕ КНОПКИ DEBUG МЕНЮ
             markup.row(
-                types.InlineKeyboardButton("🧪 ТЕСТ", callback_data="debug_test"),
-                types.InlineKeyboardButton("⚙️ Настройки", callback_data="debug_settings")
+                types.InlineKeyboardButton("🧪 ТЕСТ + АВТОЗАПОЛНЕНИЕ", callback_data="debug_test_autofill")
             )
             markup.row(
-                types.InlineKeyboardButton("📊 Переменные", callback_data="debug_variables"),
-                types.InlineKeyboardButton("🔄 Автозаполнение", callback_data="debug_autofill")
+                types.InlineKeyboardButton("⚙️ НАСТРОЙКИ + ПЕРЕМЕННЫЕ", callback_data="debug_settings_variables")
             )
             markup.row(
                 types.InlineKeyboardButton("🔙 Назад", callback_data="debug_back")
@@ -459,10 +542,8 @@ class TruckServiceManagerBot:
 🐛 МЕНЮ ОТЛАДКИ
 
 Доступные функции:
-• 🧪 ТЕСТ - тестовый вызов методов
-• ⚙️ Настройки - настройки системы
-• 📊 Переменные - просмотр текущих переменных
-• 🔄 Автозаполнение - заполнить тестовыми данными
+• 🧪 ТЕСТ + АВТОЗАПОЛНЕНИЕ - тест генерации Excel и заполнение тестовыми данными
+• ⚙️ НАСТРОЙКИ + ПЕРЕМЕННЫЕ - настройки системы и переменные сессии
 • 🔙 Назад - вернуться к выбору раздела
 
 Режим: {'ВКЛЮЧЕН' if DEBUG_MODE else 'ВЫКЛЮЧЕН'}
@@ -477,390 +558,8 @@ class TruckServiceManagerBot:
             import traceback
             traceback.print_exc()
 
-    def debug_show_settings(self, chat_id: int) -> None:
-        """Показывает настройки системы"""
-        settings_text = f"""
-⚙️ НАСТРОКИ СИСТЕМЫ
-
-• Режим отладки: {'ВКЛЮЧЕН' if DEBUG_MODE else 'ВЫКЛЮЧЕН'}
-• Чат для уведомлений: {self.chat_id}
-• Ставка за час: {self.excel_processor.rate_per_hour} руб.
-• Версия: 2.0 (модульная)
-
-*Настройки в разработке*
-"""
-        self.bot.send_message(chat_id, settings_text)
-
-    def debug_show_variables(self, chat_id: int) -> None:
-        """Показывает текущие переменные"""
-        if chat_id in self.user_sessions:
-            session = self.user_sessions[chat_id]
-            variables_text = f"""
-📊 ПЕРЕМЕННЫЕ СЕССИИ
-
-• Раздел: {session.get('section', 'не выбран')}
-• Госномер: {session.get('license_plate', 'не введен')}
-• Дата: {session.get('date', 'не введена')}
-• Номер ЗН: {session.get('order_number', 'не введен')}
-• Исполнители: {session.get('workers', 'не введены')}
-• Выбрано работ: {len(session.get('selected_works', []))}
-• Выбрано материалов: {len(session.get('selected_materials', []))}
-• Текущий шаг: {session.get('step', 'не определен')}
-"""
-        else:
-            variables_text = """
-📊 ПЕРЕМЕННЫЕ СЕССИИ
-
-Активная сессия отсутствует
-Используйте 🔄 Автозаполнение для теста
-"""
-        
-        self.bot.send_message(chat_id, variables_text)
-
-    # ✅ УПРОЩЕННАЯ ВАЛИДАЦИЯ (ШАГ 3)
-    def validate_license_plate(self, text: str) -> bool:
-        """УПРОЩЕННАЯ ВАЛИДАЦИЯ ГОСНОМЕРОВ"""
-        text = text.upper().strip()
-        
-        # Очищаем от лишних символов
-        text = re.sub(r'[^\w]', '', text)
-        
-        # Основные российские форматы госномеров
-        standard_pattern = r'^[АВЕКМНОРСТУХ]\d{3}[АВЕКМНОРСТУХ]{2}\d{2,3}$'  # Стандартный
-        numeric_pattern = r'^\d{4}[АВЕКМНОРСТУХ]{2}\d{2,3}$'                  # Числовой
-        
-        return bool(re.match(standard_pattern, text) or re.match(numeric_pattern, text))
-
-    def validate_date(self, text: str) -> Tuple[bool, Union[str, datetime.datetime]]:
-        """УЛУЧШЕННАЯ ВАЛИДАЦИЯ ДАТЫ - РАЗРЕШАЕМ ПРОШЛЫЕ ДАТЫ"""
-        try:
-            date = datetime.datetime.strptime(text, '%d.%m.%Y')
-        
-            # ✅ РАЗРЕШАЕМ ДАТЫ ИЗ ПРОШЛОГО (для реальных случаев автосервиса)
-            # ✅ НО ПРОВЕРЯЕМ, ЧТОБЫ ДАТА БЫЛА НЕ СЛИШКОМ ДАВНЕЙ
-            today = datetime.date.today()
-            max_past_days = 30  # Максимум 30 дней назад
-        
-            if date.date() > today + datetime.timedelta(days=365):
-                return False, "❌ Дата не может быть больше чем на год вперед"
-            
-            if date.date() < today - datetime.timedelta(days=max_past_days):
-                return False, f"❌ Дата не может быть раньше чем {max_past_days} дней назад"
-            
-            return True, date
-        
-        except ValueError:
-            return False, "❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ"
-
-    def validate_order_number(self, text: str) -> Tuple[bool, Union[str, str]]:
-        """УПРОЩЕННАЯ ВАЛИДАЦИЯ НОМЕРА ЗАКАЗА"""
-        if text.isdigit() and 1 <= len(text) <= 10:
-            return True, text
-        return False, "❌ Номер заказ-наряда должен содержать только цифры (1-10 символов)"
-
-    def validate_workers(self, text: str) -> Tuple[bool, Union[str, str]]:
-        """УПРОЩЕННАЯ ВАЛИДАЦИЯ ИСПОЛНИТЕЛЕЙ"""
-        text = text.strip()
-        
-        if len(text) < 2:
-            return False, "❌ Введите имена исполнителей"
-        
-        if len(text) > 100:
-            return False, "❌ Слишком длинный список (макс. 100 символов)"
-        
-        # Проверяем что только буквы, запятые, пробелы
-        if not re.match(r'^[a-zA-Zа-яА-ЯёЁ\s,]+$', text):
-            return False, "❌ Недопустимые символы. Используйте только буквы, запятые и пробелы"
-        
-        # Проверяем что есть хотя бы одно имя
-        names = [name.strip() for name in text.split(',') if name.strip()]
-        if len(names) < 1:
-            return False, "❌ Введите хотя бы одного исполнителя"
-        
-        return True, text
-
-    def cleanup_session(self, chat_id: int) -> None:
-        if chat_id in self.user_sessions:
-            del self.user_sessions[chat_id]
-
-    def handle_button_click(self, call: types.CallbackQuery) -> None:
-        chat_id = call.message.chat.id
-        data = call.data
-        
-        print(f"🔍 DEBUG: Нажата кнопка с data='{data}', chat_id={chat_id}")
-
-        # ✅ ОБРАБОТЧИКИ АДМИН-ПАНЕЛИ (ВСЕ ВМЕСТЕ В НАЧАЛЕ)
-        if data == 'admin_panel':
-            self.bot.answer_callback_query(call.id, "Открываю админ-панель...")
-            self.admin_panel.show_admin_panel_sync(call)
-            return
-
-        if data == 'admin_add_list':
-            self.bot.answer_callback_query(call.id, "Добавляем новый список...")
-            self.admin_panel.handle_add_list_start_sync(call)
-            return
-
-        if data == 'admin_manage_lists':
-            self.bot.answer_callback_query(call.id, "Управление списками в разработке...")
-            self.bot.send_message(chat_id, "📋 Управление списками - в разработке 🚧")
-            return
-
-        if data == 'admin_back':
-            self.bot.answer_callback_query(call.id, "Возвращаемся...")
-            self.show_section_selection(chat_id)
-            return
-
-        # ✅ ОБРАБОТЧИКИ ДЛЯ УПРАВЛЕНИЯ ШАБЛОНАМИ
-        if data == 'admin_manage_templates':
-            self.bot.answer_callback_query(call.id, "Управление шаблонами...")
-            self.admin_panel.show_templates_management_sync(call)
-            return
-
-        if data == 'admin_add_template':
-            print(f"🔍 DEBUG: Вызываем handle_add_template_start_sync для admin_add_template")
-            self.bot.answer_callback_query(call.id, "Добавляем новый шаблон...")
-            self.admin_panel.handle_add_template_start_sync(call)
-            return
-
-        if data == 'admin_refresh_templates':
-            self.bot.answer_callback_query(call.id, "Обновляем список шаблонов...")
-            self.admin_panel.show_templates_management_sync(call)
-            return
-
-        if data == 'admin_back_to_main':
-            self.bot.answer_callback_query(call.id, "Возвращаемся...")
-            self.admin_panel.show_admin_panel_sync(call)
-            return
-
-        # ✅ ОБРАБОТЧИКИ ДЛЯ ПРОСМОТРА И УДАЛЕНИЯ ШАБЛОНОВ
-        if data.startswith('admin_view_template:'):
-            template_id = data.replace('admin_view_template:', '')
-            self.bot.answer_callback_query(call.id, "Загружаем информацию о шаблоне...")
-            self.admin_panel.handle_view_template_sync(call, template_id)
-            return
-
-        if data.startswith('admin_delete_template:'):
-            template_id = data.replace('admin_delete_template:', '')
-            self.bot.answer_callback_query(call.id, "Удаляем шаблон...")
-            self.admin_panel.handle_delete_template_sync(call, template_id)
-            return
-
-        if data.startswith('admin_edit_template:'):
-            template_id = data.replace('admin_edit_template:', '')
-            self.bot.answer_callback_query(call.id, "Редактирование шаблона...")
-            self.bot.send_message(chat_id, "✏️ Редактирование шаблонов - в разработке 🚧")
-            return
-
-        # ✅ ОБРАБОТЧИК ВЫБОРА ШАПКИ - УДАЛЕН ИЗ ИНТЕРФЕЙСА РАБОТ
-        # if data == 'select_header':  # ❌ УДАЛЕНО - шапка выбирается раньше
-
-        # ✅ ОБРАБОТЧИК ВЫБОРА КОНКРЕТНОГО ШАБЛОНА ШАПКИ
-        if data.startswith('header_'):
-            template_id = data.replace('header_', '')
-            
-            if chat_id not in self.user_sessions:
-                self.bot.answer_callback_query(call.id, "❌ Сессия устарела. Начните с /start")
-                return
-                
-            session = self.user_sessions[chat_id]
-            session['header_template'] = template_id
-            
-            template = self.excel_processor.header_manager.get_template(template_id)
-            template_name = template['name'] if template else "Бриджтаун Фудс"
-            
-            self.bot.answer_callback_query(call.id, f"✅ Выбрано: {template_name}")
-            
-            # ✅ ДОБАВИТЬ ЭТУ СТРОЧКУ - УСТАНОВИТЬ ШАГ ДЛЯ ОБРАБОТКИ ВВОДА
-            session['step'] = 'license_plate'
-
-            # ✅ ПОСЛЕ ВЫБОРА ШАПКИ - ПЕРЕХОД К ВВОДУ ДАННЫХ ЗАКАЗА
-            self.ask_license_plate(chat_id)
-            return
-
-        # ✅ ОБРАБОТЧИКИ DEBUG МЕНЮ
-        if data == 'debug_menu':
-            self.bot.answer_callback_query(call.id, "Открываю меню отладки...")
-            self.show_debug_menu(chat_id)
-            return
-        
-        elif data == 'debug_back':
-            self.bot.answer_callback_query(call.id, "Возвращаюсь...")
-            self.show_section_selection(chat_id)
-            return
-        
-        elif data == 'debug_test':
-            self.bot.answer_callback_query(call.id, "🧪 Запускаю тест...")
-            self.debug_test_function(chat_id)
-            return
-            
-        elif data == 'debug_autofill':
-            self.bot.answer_callback_query(call.id, "🔄 Заполняю тестовыми данными...")
-            self.debug_autofill(chat_id)
-            return
-
-        elif data == 'debug_settings':
-            self.bot.answer_callback_query(call.id, "⚙️ Настройки в разработке...")
-            self.debug_show_settings(chat_id)
-            return
-
-        elif data == 'debug_variables':
-            self.bot.answer_callback_query(call.id, "📊 Переменные в разработке...")
-            self.debug_show_variables(chat_id)
-            return
-
-        # ✅ ОБРАБОТЧИК ПОЛЬЗОВАТЕЛЬСКИХ СПИСКОВ
-        elif data.startswith('custom_list_'):
-            list_name = data.replace('custom_list_', '')
-            print(f"🔍 DEBUG: Обрабатываем список '{list_name}'")
-            
-            self.bot.answer_callback_query(call.id, f"Выбран список: {list_name}")
-            
-            works = self.admin_panel.load_works_from_custom_list(list_name)
-            
-            if works:
-                self.user_sessions[chat_id] = {
-                    'section': f'custom_{list_name}',
-                    'custom_list': list_name,
-                    'step': 'selecting_header',  # ✅ НОВЫЙ ШАГ - выбор шапки
-                    'selected_works': [],
-                    'selected_materials': [],
-                    'current_page': 0,
-                    'works': works
-                }
-                
-                # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
-                materials = self.materials_repository.get_materials()
-                self.user_sessions[chat_id]['materials'] = materials
-                
-                print(f"🔍 DEBUG: Создана сессия для списка '{list_name}'")
-                print(f"🔍 DEBUG: Работ в сессии: {len(works)}")
-                print(f"🔍 DEBUG: Материалов в сессии: {len(materials)}")
-                
-                # ✅ ПОСЛЕ ВЫБОРА СПИСКА - СРАЗУ ПЕРЕХОД К ВЫБОРУ ШАПКИ
-                self.ask_header_selection(chat_id)
-            else:
-                self.bot.send_message(
-                    chat_id,
-                    f"❌ В списке '{list_name}' нет работ или файл поврежден"
-                )
-            return        
-        
-        # ✅ ОБРАБОТЧИК ВЫБОРА РАЗДЕЛА
-        elif data.startswith('section_'):
-            section_id = data.split('_')[1]
-            if section_id in self.sections:
-                self.bot.answer_callback_query(call.id, f"Выбран раздел: {self.sections[section_id]['name']}")
-                
-                self.user_sessions[chat_id] = {
-                    'section': section_id,
-                    'step': 'selecting_header',  # ✅ НОВЫЙ ШАГ - выбор шапки перед данными
-                    'selected_works': [],
-                    'selected_materials': [],
-                    'current_page': 0
-                }
-                
-                # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
-                works = self.works_repository.get_works(section_id)
-                if not works:
-                    self.bot.send_message(
-                        chat_id,
-                        "⚠️ Список работ для этого раздела пуст.\nПожалуйста, добавьте работы в файл Excel или обратитесь к администратору."
-                    )
-                    return
-                
-                self.user_sessions[chat_id]['works'] = works
-                
-                # ✅ ПОСЛЕ ВЫБОРА РАЗДЕЛА - СРАЗУ ПЕРЕХОД К ВЫБОРУ ШАПКИ
-                self.ask_header_selection(chat_id)
-            return
-        
-        # ✅ ТЕПЕРЬ ПРОВЕРКА СЕССИИ - только для work_, page_, create_order и т.д.
-        if chat_id not in self.user_sessions:
-            self.bot.answer_callback_query(call.id, "Сессия устарела. Начните с /start")
-            return
-        
-        session = self.user_sessions[chat_id]
-        
-        if data.startswith('work_'):
-            work_index = int(data.split('_')[1])
-            works = session.get('works', [])
-            if work_index < len(works):
-                work = works[work_index]
-                
-                if work in session['selected_works']:
-                    session['selected_works'].remove(work)
-                    self.bot.answer_callback_query(call.id, f"❌ Удалено: {work[0]}")
-                else:
-                    session['selected_works'].append(work)
-                    self.bot.answer_callback_query(call.id, f"✅ Добавлено: {work[0]}")
-                
-                self.update_works_message(call.message, session)
-        
-        elif data.startswith('material_'):
-            material_index = int(data.split('_')[1])
-            materials = session.get('materials', [])
-            if material_index < len(materials):
-                material = materials[material_index]
-                
-                if material in session['selected_materials']:
-                    session['selected_materials'].remove(material)
-                    self.bot.answer_callback_query(call.id, f"❌ Удалено: {material}")
-                else:
-                    session['selected_materials'].append(material)
-                    self.bot.answer_callback_query(call.id, f"✅ Добавлено: {material}")
-                
-                self.update_materials_message(call.message, session)
-        
-        elif data.startswith('page_'):
-            page_type = data.split('_')[1]
-            page = int(data.split('_')[2])
-            try:
-                self.bot.delete_message(chat_id, call.message.message_id)
-            except Exception as e:
-                print(f"⚠️ Не удалось удалить сообщение: {e}")
-            
-            if page_type == 'works':
-                self.show_works_selection(chat_id, page)
-            elif page_type == 'materials':
-                self.show_materials_selection(chat_id, page)
-        
-        elif data == 'reset_works':
-            session['selected_works'] = []
-            self.bot.answer_callback_query(call.id, "Выбор работ сброшен")
-            self.update_works_message(call.message, session)
-            
-        elif data == 'reset_materials':
-            session['selected_materials'] = []
-            self.bot.answer_callback_query(call.id, "Выбор материалов сброшен")
-            self.update_materials_message(call.message, session)
-            
-        elif data == 'select_materials':
-            self.bot.answer_callback_query(call.id, "Переходим к выбору материалов...")
-            self.show_materials_selection(chat_id)
-            
-        elif data == 'create_order':
-            if not session['selected_works']:
-                self.bot.answer_callback_query(call.id, "❌ Выберите хотя бы одну работу")
-                return
-            
-            self.bot.answer_callback_query(call.id, "Создаю заказ-наряд...")
-            self.ask_about_photos(chat_id)
-            
-        elif data == 'skip_materials':
-            self.bot.answer_callback_query(call.id, "Использую материалы по умолчанию")
-            session['selected_materials'] = []
-            self.ask_about_photos(chat_id)
-            
-        elif data == 'add_photos_yes':
-            self.bot.answer_callback_query(call.id, "Отлично! Отправьте фото по одному...")
-            self.request_photos(chat_id)
-            
-        elif data == 'add_photos_no':
-            self.bot.answer_callback_query(call.id, "Создаю заказ без фото...")
-            self._finalize_order_common(chat_id, has_photos=False)            
-
-    def debug_test_function(self, chat_id: int) -> None:
-        """Тестовая функция для отладки - тестируем генерацию Excel"""
+    def debug_test_autofill_combined(self, chat_id: int) -> None:
+        """✅ ОБЪЕДИНЕННАЯ ФУНКЦИЯ: тест генерации Excel + автозаполнение"""
         try:
             self.bot.send_message(chat_id, "🧪 Запускаю тест генерации Excel...")
             
@@ -873,7 +572,7 @@ class TruckServiceManagerBot:
                 'workers': 'Тестовый Исполнитель',
                 'selected_works': [],
                 'selected_materials': [],
-                'header_template': 'bridge_town'  # ✅ ДОБАВЛЯЕМ ШАБЛОН ШАПКИ
+                'header_template': 'bridge_town'
             }
             
             # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
@@ -890,7 +589,7 @@ class TruckServiceManagerBot:
             test_session['selected_materials'] = materials
             materials_info = "\n".join([f"• {material}" for material in materials])
             
-            # ✅ ИСПОЛЬЗУЕМ ФАБРИКУ ДОКУМЕНТОВ ДЛЯ СОЗДАНИЯ ТЕСТОВОГО ЗАКАЗА 🆕
+            # ✅ ИСПОЛЬЗУЕМ ФАБРИКУ ДОКУМЕНТОВ ДЛЯ СОЗДАНИЯ ТЕСТОВОГО ЗАКАЗА
             section_folder = self.sections['base']['folder']
             documents = self.document_factory.create_all(test_session, section_folder)
             
@@ -935,26 +634,21 @@ class TruckServiceManagerBot:
             else:
                 self.bot.send_message(chat_id, "❌ Ошибка создания документов через фабрику")
             
-        except Exception as e:
-            self.bot.send_message(chat_id, f"❌ Ошибка теста: {e}")
-            import traceback
-            traceback.print_exc()
-
-    def debug_autofill(self, chat_id: int) -> None:
-        """Автозаполнение тестовыми данными"""
-        try:
+            # 🔄 АВТОЗАПОЛНЕНИЕ - создаем тестовую сессию для пользователя
+            self.bot.send_message(chat_id, "\n🔄 Выполняю автозаполнение тестовыми данными...")
+            
             # Создаем тестовую сессию
             self.user_sessions[chat_id] = {
                 'section': 'base',
                 'step': 'selecting_works',
-                'license_plate': 'А333АА33',  # Тестовый госномер
-                'date': datetime.datetime.now(),  # Сегодняшняя дата
-                'order_number': '333',  # Тестовый номер заказа
-                'workers': 'Мордвинов',  # Тестовый исполнитель
+                'license_plate': 'А333АА33',
+                'date': datetime.datetime.now(),
+                'order_number': '333',
+                'workers': 'Мордвинов',
                 'selected_works': [],
                 'selected_materials': [],
                 'current_page': 0,
-                'header_template': 'bridge_town'  # ✅ ДОБАВЛЯЕМ ШАБЛОН ШАПКИ
+                'header_template': 'bridge_town'
             }
             
             session = self.user_sessions[chat_id]
@@ -984,7 +678,7 @@ class TruckServiceManagerBot:
                 materials_info = "\n".join([f"• {material}" for material in materials])
             
             # Показываем результат автозаполнения
-            result_text = f"""
+            autofill_text = f"""
 🔄 АВТОЗАПОЛНЕНИЕ ВЫПОЛНЕНО!
 
 Тестовые данные:
@@ -1004,15 +698,60 @@ class TruckServiceManagerBot:
 Теперь можно создать заказ-наряд!
             """
             
-            self.bot.send_message(chat_id, result_text)
+            self.bot.send_message(chat_id, autofill_text)
             
             # Показываем меню выбора работ с уже выбранными работами
             self.show_works_selection(chat_id)
             
         except Exception as e:
-            self.bot.send_message(chat_id, f"❌ Ошибка автозаполнения: {e}")
+            self.bot.send_message(chat_id, f"❌ Ошибка теста и автозаполнения: {e}")
             import traceback
             traceback.print_exc()
+
+    def debug_show_settings_variables_combined(self, chat_id: int) -> None:
+        """✅ ОБЪЕДИНЕННАЯ ФУНКЦИЯ: настройки системы + переменные сессии"""
+        try:
+            # 📊 НАСТРОЙКИ СИСТЕМЫ
+            settings_text = f"""
+⚙️ НАСТРОЙКИ СИСТЕМЫ
+
+• Режим отладки: {'ВКЛЮЧЕН' if DEBUG_MODE else 'ВЫКЛЮЧЕН'}
+• Чат для уведомлений: {self.chat_id}
+• Ставка за час: {self.excel_processor.rate_per_hour} руб.
+• Версия: 2.5.1 (оптимизированная)
+
+*Настройки в разработке*
+"""
+            self.bot.send_message(chat_id, settings_text)
+            
+            # 📊 ПЕРЕМЕННЫЕ СЕССИИ
+            if chat_id in self.user_sessions:
+                session = self.user_sessions[chat_id]
+                variables_text = f"""
+📊 ПЕРЕМЕННЫЕ СЕССИИ
+
+• Раздел: {session.get('section', 'не выбран')}
+• Госномер: {session.get('license_plate', 'не введен')}
+• Дата: {session.get('date', 'не введена')}
+• Номер ЗН: {session.get('order_number', 'не введен')}
+• Исполнители: {session.get('workers', 'не введены')}
+• Выбрано работ: {len(session.get('selected_works', []))}
+• Выбрано материалов: {len(session.get('selected_materials', []))}
+• Текущий шаг: {session.get('step', 'не определен')}
+• Шаблон шапки: {session.get('header_template', 'не выбран')}
+"""
+            else:
+                variables_text = """
+📊 ПЕРЕМЕННЫЕ СЕССИИ
+
+Активная сессия отсутствует
+Используйте 🧪 ТЕСТ + АВТОЗАПОЛНЕНИЕ для создания тестовой сессии
+"""
+            
+            self.bot.send_message(chat_id, variables_text)
+            
+        except Exception as e:
+            self.bot.send_message(chat_id, f"❌ Ошибка показа настроек и переменных: {e}")
 
     def ask_about_photos(self, chat_id: int) -> None:
         markup = types.InlineKeyboardMarkup()
@@ -1114,6 +853,14 @@ class TruckServiceManagerBot:
         except Exception as e:
             self.bot.send_message(chat_id, f"❌ Ошибка расчета суммы: {e}")
             return False
+
+    # ✅ ДОБАВИТЬ ЭТОТ МЕТОД
+    def cleanup_session(self, chat_id: int) -> None:
+        """Очистка сессии пользователя"""
+        if chat_id in self.user_sessions:
+            del self.user_sessions[chat_id]
+            print(f"✅ Сессия очищена для chat_id: {chat_id}")
+
 
     def _send_to_work_chat(self, session: Dict[str, Any], has_photos: bool) -> None:
         """Отправляет заказ в рабочий чат"""
@@ -1238,7 +985,7 @@ class TruckServiceManagerBot:
         else:
             section_name = self.sections[session['section']]['name']
         
-        # ✅ ПОЛУЧАЕМ ИМЯ ШАБЛОНА ШАПКИ
+        # ✅ ПОЛУЧАЕМ ИМЯ ШАБЛОна ШАПКИ
         template_id = session.get('header_template', 'bridge_town')
         template = self.excel_processor.header_manager.get_template(template_id)
         template_name = template['name'] if template else "Бриджтаун Фудс"
@@ -1529,7 +1276,7 @@ class TruckServiceManagerBot:
         self.bot.send_message(chat_id, text, reply_markup=markup)        
 
     def show_materials_selection(self, chat_id: int, page: int = 0) -> None:
-        """ИНТЕРФЕЙС ВЫБОРА МАТЕРИАЛОВ"""
+        """ИНТЕРФЕИС ВЫБОРА МАТЕРИАЛОВ"""
         session = self.user_sessions[chat_id]
         
         # Загружаем материалы если еще не загружены
@@ -1748,6 +1495,271 @@ class TruckServiceManagerBot:
                 content.append(f"• {material}")
         
         return '\n'.join(content)
+
+    def handle_button_click(self, call: types.CallbackQuery) -> None:
+        chat_id = call.message.chat.id
+        data = call.data
+        
+        print(f"🔍 DEBUG: Нажата кнопка с data='{data}', chat_id={chat_id}")
+
+        # ✅ ОБРАБОТЧИКИ АДМИН-ПАНЕЛИ (ВСЕ ВМЕСТЕ В НАЧАЛЕ)
+        if data == 'admin_panel':
+            self.bot.answer_callback_query(call.id, "Открываю админ-панель...")
+            self.admin_panel.show_admin_panel_sync(call)
+            return
+
+        if data == 'admin_add_list':
+            self.bot.answer_callback_query(call.id, "Добавляем новый список...")
+            self.admin_panel.handle_add_list_start_sync(call)
+            return
+
+        if data == 'admin_manage_lists':
+            self.bot.answer_callback_query(call.id, "Управление списками в разработке...")
+            self.bot.send_message(chat_id, "📋 Управление списками - в разработке 🚧")
+            return
+
+        if data == 'admin_back':
+            self.bot.answer_callback_query(call.id, "Возвращаемся...")
+            self.show_section_selection(chat_id)
+            return
+
+        # ✅ ОБРАБОТЧИКИ ДЛЯ УПРАВЛЕНИЯ ШАБЛОНАМИ
+        if data == 'admin_manage_templates':
+            self.bot.answer_callback_query(call.id, "Управление шаблонами...")
+            self.admin_panel.show_templates_management_sync(call)
+            return
+
+        if data == 'admin_add_template':
+            print(f"🔍 DEBUG: Вызываем handle_add_template_start_sync для admin_add_template")
+            self.bot.answer_callback_query(call.id, "Добавляем новый шаблон...")
+            self.admin_panel.handle_add_template_start_sync(call)
+            return
+
+        if data == 'admin_refresh_templates':
+            self.bot.answer_callback_query(call.id, "Обновляем список шаблонов...")
+            self.admin_panel.show_templates_management_sync(call)
+            return
+
+        if data == 'admin_back_to_main':
+            self.bot.answer_callback_query(call.id, "Возвращаемся...")
+            self.admin_panel.show_admin_panel_sync(call)
+            return
+
+        # ✅ ОБРАБОТЧИКИ ДЛЯ ПРОСМОТРА И УДАЛЕНИЯ ШАБЛОНОВ
+        if data.startswith('admin_view_template:'):
+            template_id = data.replace('admin_view_template:', '')
+            self.bot.answer_callback_query(call.id, "Загружаем информацию о шаблоне...")
+            self.admin_panel.handle_view_template_sync(call, template_id)
+            return
+
+        if data.startswith('admin_delete_template:'):
+            template_id = data.replace('admin_delete_template:', '')
+            self.bot.answer_callback_query(call.id, "Удаляем шаблон...")
+            self.admin_panel.handle_delete_template_sync(call, template_id)
+            return
+
+        if data.startswith('admin_edit_template:'):
+            template_id = data.replace('admin_edit_template:', '')
+            self.bot.answer_callback_query(call.id, "Редактирование шаблона...")
+            self.bot.send_message(chat_id, "✏️ Редактирование шаблонов - в разработке 🚧")
+            return
+
+        # ✅ ОБРАБОТЧИК ВЫБОРА ШАПКИ - УДАЛЕН ИЗ ИНТЕРФЕЙСА РАБОТ
+        # if data == 'select_header':  # ❌ УДАЛЕНО - шапка выбирается раньше
+
+        # ✅ ОБРАБОТЧИК ВЫБОРА КОНКРЕТНОГО ШАБЛОНА ШАПКИ
+        if data.startswith('header_'):
+            template_id = data.replace('header_', '')
+            
+            if chat_id not in self.user_sessions:
+                self.bot.answer_callback_query(call.id, "❌ Сессия устарела. Начните с /start")
+                return
+                
+            session = self.user_sessions[chat_id]
+            session['header_template'] = template_id
+            session['step'] = 'license_plate'  # ✅ УСТАНАВЛИВАЕМ ШАГ ДЛЯ ОБРАБОТКИ ВВОДА
+            
+            template = self.excel_processor.header_manager.get_template(template_id)
+            template_name = template['name'] if template else "Бриджтаун Фудс"
+            
+            self.bot.answer_callback_query(call.id, f"✅ Выбрано: {template_name}")
+            
+            # ✅ ПОСЛЕ ВЫБОРА ШАПКИ - ПЕРЕХОД К ВВОДУ ДАННЫХ ЗАКАЗА
+            self.ask_license_plate(chat_id)
+            return
+
+        # ✅ ОБРАБОТЧИКИ DEBUG МЕНЮ - ОПТИМИЗИРОВАННЫЕ
+        if data == 'debug_menu':
+            self.bot.answer_callback_query(call.id, "Открываю меню отладки...")
+            self.show_debug_menu(chat_id)
+            return
+        
+        elif data == 'debug_back':
+            self.bot.answer_callback_query(call.id, "Возвращаюсь...")
+            self.show_section_selection(chat_id)
+            return
+        
+        # ✅ ОБЪЕДИНЕННЫЕ ОБРАБОТЧИКИ DEBUG
+        elif data == 'debug_test_autofill':
+            self.bot.answer_callback_query(call.id, "🧪 Запускаю тест и автозаполнение...")
+            self.debug_test_autofill_combined(chat_id)
+            return
+            
+        elif data == 'debug_settings_variables':
+            self.bot.answer_callback_query(call.id, "⚙️ Показываю настройки и переменные...")
+            self.debug_show_settings_variables_combined(chat_id)
+            return
+
+        # ✅ ОБРАБОТЧИК ПОЛЬЗОВАТЕЛЬСКИХ СПИСКОВ
+        elif data.startswith('custom_list_'):
+            list_name = data.replace('custom_list_', '')
+            print(f"🔍 DEBUG: Обрабатываем список '{list_name}'")
+            
+            self.bot.answer_callback_query(call.id, f"Выбран список: {list_name}")
+            
+            works = self.admin_panel.load_works_from_custom_list(list_name)
+            
+            if works:
+                self.user_sessions[chat_id] = {
+                    'section': f'custom_{list_name}',
+                    'custom_list': list_name,
+                    'step': 'selecting_header',  # ✅ НОВЫЙ ШАГ - выбор шапки
+                    'selected_works': [],
+                    'selected_materials': [],
+                    'current_page': 0,
+                    'works': works
+                }
+                
+                # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
+                materials = self.materials_repository.get_materials()
+                self.user_sessions[chat_id]['materials'] = materials
+                
+                print(f"🔍 DEBUG: Создана сессия для списка '{list_name}'")
+                print(f"🔍 DEBUG: Работ в сессии: {len(works)}")
+                print(f"🔍 DEBUG: Материалов в сессии: {len(materials)}")
+                
+                # ✅ ПОСЛЕ ВЫБОРА СПИСКА - СРАЗУ ПЕРЕХОД К ВЫБОРУ ШАПКИ
+                self.ask_header_selection(chat_id)
+            else:
+                self.bot.send_message(
+                    chat_id,
+                    f"❌ В списке '{list_name}' нет работ или файл поврежден"
+                )
+            return        
+        
+        # ✅ ОБРАБОТЧИК ВЫБОРА РАЗДЕЛА
+        elif data.startswith('section_'):
+            section_id = data.split('_')[1]
+            if section_id in self.sections:
+                self.bot.answer_callback_query(call.id, f"Выбран раздел: {self.sections[section_id]['name']}")
+                
+                self.user_sessions[chat_id] = {
+                    'section': section_id,
+                    'step': 'selecting_header',  # ✅ НОВЫЙ ШАГ - выбор шапки перед данными
+                    'selected_works': [],
+                    'selected_materials': [],
+                    'current_page': 0
+                }
+                
+                # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
+                works = self.works_repository.get_works(section_id)
+                if not works:
+                    self.bot.send_message(
+                        chat_id,
+                        "⚠️ Список работ для этого раздела пуст.\nПожалуйста, добавьте работы в файл Excel или обратитесь к администратору."
+                    )
+                    return
+                
+                self.user_sessions[chat_id]['works'] = works
+                
+                # ✅ ПОСЛЕ ВЫБОРА РАЗДЕЛА - СРАЗУ ПЕРЕХОД К ВЫБОРУ ШАПКИ
+                self.ask_header_selection(chat_id)
+            return
+        
+        # ✅ ТЕПЕРЬ ПРОВЕРКА СЕССИИ - только для work_, page_, create_order и т.д.
+        if chat_id not in self.user_sessions:
+            self.bot.answer_callback_query(call.id, "Сессия устарела. Начните с /start")
+            return
+        
+        session = self.user_sessions[chat_id]
+        
+        if data.startswith('work_'):
+            work_index = int(data.split('_')[1])
+            works = session.get('works', [])
+            if work_index < len(works):
+                work = works[work_index]
+                
+                if work in session['selected_works']:
+                    session['selected_works'].remove(work)
+                    self.bot.answer_callback_query(call.id, f"❌ Удалено: {work[0]}")
+                else:
+                    session['selected_works'].append(work)
+                    self.bot.answer_callback_query(call.id, f"✅ Добавлено: {work[0]}")
+                
+                self.update_works_message(call.message, session)
+        
+        elif data.startswith('material_'):
+            material_index = int(data.split('_')[1])
+            materials = session.get('materials', [])
+            if material_index < len(materials):
+                material = materials[material_index]
+                
+                if material in session['selected_materials']:
+                    session['selected_materials'].remove(material)
+                    self.bot.answer_callback_query(call.id, f"❌ Удалено: {material}")
+                else:
+                    session['selected_materials'].append(material)
+                    self.bot.answer_callback_query(call.id, f"✅ Добавлено: {material}")
+                
+                self.update_materials_message(call.message, session)
+        
+        elif data.startswith('page_'):
+            page_type = data.split('_')[1]
+            page = int(data.split('_')[2])
+            try:
+                self.bot.delete_message(chat_id, call.message.message_id)
+            except Exception as e:
+                print(f"⚠️ Не удалось удалить сообщение: {e}")
+            
+            if page_type == 'works':
+                self.show_works_selection(chat_id, page)
+            elif page_type == 'materials':
+                self.show_materials_selection(chat_id, page)
+        
+        elif data == 'reset_works':
+            session['selected_works'] = []
+            self.bot.answer_callback_query(call.id, "Выбор работ сброшен")
+            self.update_works_message(call.message, session)
+            
+        elif data == 'reset_materials':
+            session['selected_materials'] = []
+            self.bot.answer_callback_query(call.id, "Выбор материалов сброшен")
+            self.update_materials_message(call.message, session)
+            
+        elif data == 'select_materials':
+            self.bot.answer_callback_query(call.id, "Переходим к выбору материалов...")
+            self.show_materials_selection(chat_id)
+            
+        elif data == 'create_order':
+            if not session['selected_works']:
+                self.bot.answer_callback_query(call.id, "❌ Выберите хотя бы одну работу")
+                return
+            
+            self.bot.answer_callback_query(call.id, "Создаю заказ-наряд...")
+            self.ask_about_photos(chat_id)
+            
+        elif data == 'skip_materials':
+            self.bot.answer_callback_query(call.id, "Использую материалы по умолчанию")
+            session['selected_materials'] = []
+            self.ask_about_photos(chat_id)
+            
+        elif data == 'add_photos_yes':
+            self.bot.answer_callback_query(call.id, "Отлично! Отправьте фото по одному...")
+            self.request_photos(chat_id)
+            
+        elif data == 'add_photos_no':
+            self.bot.answer_callback_query(call.id, "Создаю заказ без фото...")
+            self._finalize_order_common(chat_id, has_photos=False)            
 
     def run(self) -> None:
         print("🔄 Запускаю TruckService Manager...")
