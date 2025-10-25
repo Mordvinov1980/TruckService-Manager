@@ -1,0 +1,150 @@
+[
+  {
+    "session_id": "diag_20251019_184156",
+    "timestamp": "2025-10-19T18:41:56.472707",
+    "vehicle_info": {
+      "vin": "WDB9340321L123456",
+      "protocol": "J1939",
+      "timestamp": "2025-10-19T18:41:56.466403",
+      "simulation": true
+    },
+    "diagnostic_data": {
+      "vehicle_info": {
+        "vin": "WDB9340321L123456",
+        "protocol": "J1939",
+        "timestamp": "2025-10-19T18:41:56.466403",
+        "simulation": true
+      },
+      "live_data": {
+        "timestamp": "2025-10-19T18:41:56.466431",
+        "parameters": {
+          "rpm": {
+            "value": 650,
+            "units": "RPM"
+          },
+          "speed": {
+            "value": 0,
+            "units": "km/h"
+          },
+          "coolant_temp": {
+            "value": 85,
+            "units": "°C"
+          },
+          "engine_load": {
+            "value": 45.5,
+            "units": "%"
+          },
+          "fuel_pressure": {
+            "value": 4.8,
+            "units": "bar"
+          },
+          "intake_pressure": {
+            "value": 1.2,
+            "units": "bar"
+          },
+          "maf": {
+            "value": 12.3,
+            "units": "g/s"
+          },
+          "throttle_pos": {
+            "value": 0.0,
+            "units": "%"
+          },
+          "engine_runtime": {
+            "value": 1250,
+            "units": "s"
+          },
+          "fuel_level": {
+            "value": 75.5,
+            "units": "%"
+          }
+        },
+        "simulation": true
+      },
+      "dtc_codes": {
+        "count": 2,
+        "codes": [
+          "P0670",
+          "U0100"
+        ],
+        "timestamp": "2025-10-19T18:41:56.466497",
+        "simulation": true
+      }
+    },
+    "has_errors": true
+  },
+  {
+    "session_id": "diag_20251019_212713",
+    "timestamp": "2025-10-19T21:27:13.489211",
+    "vehicle_info": {
+      "vin": "WDB9340321L123456",
+      "protocol": "J1939",
+      "timestamp": "2025-10-19T21:27:13.484490",
+      "simulation": true
+    },
+    "diagnostic_data": {
+      "vehicle_info": {
+        "vin": "WDB9340321L123456",
+        "protocol": "J1939",
+        "timestamp": "2025-10-19T21:27:13.484490",
+        "simulation": true
+      },
+      "live_data": {
+        "timestamp": "2025-10-19T21:27:13.484517",
+        "parameters": {
+          "rpm": {
+            "value": 650,
+            "units": "RPM"
+          },
+          "speed": {
+            "value": 0,
+            "units": "km/h"
+          },
+          "coolant_temp": {
+            "value": 85,
+            "units": "°C"
+          },
+          "engine_load": {
+            "value": 45.5,
+            "units": "%"
+          },
+          "fuel_pressure": {
+            "value": 4.8,
+            "units": "bar"
+          },
+          "intake_pressure": {
+            "value": 1.2,
+            "units": "bar"
+          },
+          "maf": {
+            "value": 12.3,
+            "units": "g/s"
+          },
+          "throttle_pos": {
+            "value": 0.0,
+            "units": "%"
+          },
+          "engine_runtime": {
+            "value": 1250,
+            "units": "s"
+          },
+          "fuel_level": {
+            "value": 75.5,
+            "units": "%"
+          }
+        },
+        "simulation": true
+      },
+      "dtc_codes": {
+        "count": 2,
+        "codes": [
+          "P0670",
+          "U0100"
+        ],
+        "timestamp": "2025-10-19T21:27:13.484580",
+        "simulation": true
+      }
+    },
+    "has_errors": true
+  }
+]

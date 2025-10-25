@@ -267,6 +267,35 @@ class ExcelAccountingRepository(AccountingRepository):
         # Инициализируем файлы учета
         self._initialize_accounting_files()
 
+    # ✅ ДОБАВИТЬ ЭТОТ МЕТОД ПРЯМО ЗДЕСЬ - после __init__ и перед save_order
+    def _safe_dataframe_concat(self, df1: pd.DataFrame, df2: pd.DataFrame) -> pd.DataFrame:
+        """Безопасное объединение DataFrame с обработкой пустых данных"""
+        try:
+            # Если оба DataFrame пустые
+            if df1.empty and df2.empty:
+                return pd.DataFrame()
+            
+            # Если первый DataFrame пустой
+            if df1.empty:
+                return df2
+            
+            # Если второй DataFrame пустой  
+            if df2.empty:
+                return df1
+            
+            # Оба не пустые - объединяем
+            return pd.concat([df1, df2], ignore_index=True)
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка объединения DataFrame: {e}")
+            # Возвращаем непустой DataFrame или создаем новый
+            if not df1.empty:
+                return df1
+            elif not df2.empty:
+                return df2
+            else:
+                return pd.DataFrame()
+
     def save_order(self, session: Dict[str, Any], excel_filename: str, has_photos: str) -> bool:
         """Сохранить заказ в учет"""
         try:
@@ -305,8 +334,7 @@ class ExcelAccountingRepository(AccountingRepository):
                 'Файл Excel': excel_filename,
                 'Фото добавлены': has_photos
             }
-            
-            df_section = pd.concat([df_section, pd.DataFrame([new_record])], ignore_index=True)
+            df_section = self._safe_dataframe_concat(df_section, pd.DataFrame([new_record]))
             df_section.to_excel(wb_section, index=False)
             wb_section.close()
             
@@ -333,8 +361,7 @@ class ExcelAccountingRepository(AccountingRepository):
                 'Общее время': total_hours,
                 'Фото добавлены': has_photos
             }
-            
-            df_common = pd.concat([df_common, pd.DataFrame([new_common_record])], ignore_index=True)
+            df_common = self._safe_dataframe_concat(df_common, pd.DataFrame([new_common_record]))
             df_common.to_excel(wb_common, index=False)
             wb_common.close()
             

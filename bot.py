@@ -20,8 +20,9 @@ from typing import Dict, List, Tuple, Optional, Union, Any
 from modules.excel_processor import ExcelProcessor, ExcelProcessingError
 from modules.data_repositories import (RepositoryFactory, WorksRepository, MaterialsRepository, 
                                      AccountingRepository, RepositoryError, DataNotFoundError)
-from modules.document_factory import DocumentFactory, DocumentCreationError  # 🆕 ИМПОРТ ФАБРИКИ ДОКУМЕНТОВ
+from modules.document_factory import DocumentFactory, DocumentCreationError
 from modules.admin_panel import AdminPanel
+from modules.navigation_manager import NavigationManager  # ✅ НОВЫЙ ИМПОРТ
 
 load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
@@ -66,9 +67,7 @@ class AccountingError(BotProcessingError):
 class TruckServiceManagerBot:
     def __init__(self, token: str) -> None:
         self.bot = telebot.TeleBot(token)
-        # ✅ СОЗДАЕМ ЭКЗЕМПЛЯР ExcelProcessor
         self.excel_processor = ExcelProcessor()
-        # ✅ СОЗДАЕМ ФАБРИКУ ДОКУМЕНТОВ 🆕
         self.document_factory = DocumentFactory(self.excel_processor)
         self.user_sessions: Dict[int, Dict[str, Any]] = {}
         self.chat_id = CHAT_ID
@@ -81,19 +80,22 @@ class TruckServiceManagerBot:
         
         self.setup_directories()
         self.setup_logging()
-        self.setup_repositories()  # ✅ ИНИЦИАЛИЗИРУЕМ РЕПОЗИТОРИИ
+        self.setup_repositories()
         self.setup_handlers()
         self.setup_bot_menu()
         
-        # ✅ СОЗДАЕМ АДМИН-ПАНЕЛЬ ПОСЛЕ setup_handlers()
+        # ✅ СОЗДАЕМ АДМИН-ПАНЕЛЬ
         self.admin_panel = AdminPanel(self.bot)
-        # ✅ ПЕРЕДАЕМ EXCEL_PROCESSOR В АДМИН-ПАНЕЛЬ
         self.admin_panel.excel_processor = self.excel_processor
-
-        # ✅ РЕГИСТРИРУЕМ ОБРАБОТЧИКИ АДМИН-ПАНЕЛИ
-        ##self.admin_panel.register_handlers(self.bot)
         
-        print("🤖 TruckService Manager запущен!")
+        # ✅ ИНИЦИАЛИЗИРУЕМ НОВУЮ НАВИГАЦИЮ
+        self.navigation = NavigationManager(self.bot)
+        
+        # ✅ ПЕРЕДАЕМ ЗАВИСИМОСТИ В НАВИГАЦИЮ
+        self.navigation.set_dependencies(self.admin_panel, self.excel_processor)
+        self.navigation.set_sections(self.sections)
+        
+        print("🤖 TruckService Manager запущен с новой навигацией!")
 
     def setup_repositories(self) -> None:
         """Инициализация репозиториев для работы с данными"""
@@ -150,7 +152,7 @@ class TruckServiceManagerBot:
             # ОСНОВНЫЕ ПАПКИ
             essential_folders = [
                 self.main_folder,
-                self.main_folder / "Шаблоны",  # ✅ ТОЛЬКО ОДНА ПАПКА ШАБЛОНЫ
+                self.main_folder / "Шаблоны",
                 self.main_folder / "Общий_учет",
                 self.main_folder / "Логи"
             ]
@@ -166,7 +168,7 @@ class TruckServiceManagerBot:
                 }
             }
             
-            # ПАПКИ РАЗДЕЛОВ - БЕЗ ПАПКИ "ШАБЛОНЫ"
+            # ПАПКИ РАЗДЕЛОВ
             for section_id, section_data in self.sections.items():
                 section_folders = [
                     section_data['folder'],
@@ -189,102 +191,26 @@ class TruckServiceManagerBot:
         except Exception as e:
             raise FileSystemError(f"Ошибка создания структуры папок: {e}") from e
 
-    # ✅ ДОБАВЛЕНЫ МЕТОДЫ ВАЛИДАЦИИ
-    def validate_license_plate(self, text: str) -> bool:
-        """Валидация госномера автомобиля"""
-        if not text or len(text) < 2:
-            return False
-            
-        # Паттерны для российских госномеров
-        patterns = [
-            r'^[АВЕКМНОРСТУХ]{1}\d{3}[АВЕКМНОРСТУХ]{2}\d{2,3}$',  # Стандартный: А123ВС77
-            r'^\d{4}[АВЕКМНОРСТУХ]{2}\d{2,3}$',  # Формат: 1234АВ77
-            r'^[АВЕКМНОРСТУХ]{2}\d{3}\d{2,3}$',  # Формат: АА12377
-        ]
-        
-        text_upper = text.upper().replace(' ', '')
-        
-        for pattern in patterns:
-            if re.match(pattern, text_upper):
-                return True
-                
-        return False
-
-    def validate_date(self, text: str) -> Tuple[bool, Union[datetime.datetime, str]]:
-        """Валидация даты - РАЗРЕШАЕМ БУДУЩИЕ ДАТЫ"""
-        try:
-            # Пробуем разные форматы дат
-            formats = ['%d.%m.%Y', '%d/%m/%Y', '%d-%m-%Y', '%Y.%m.%d', '%Y/%m/%d', '%Y-%m-%d']
-            
-            for fmt in formats:
-                try:
-                    date_obj = datetime.datetime.strptime(text.strip(), fmt)
-                    # ✅ УБИРАЕМ ПРОВЕРКУ НА БУДУЩЕЕ - разрешаем любые даты
-                    return True, date_obj
-                except ValueError:
-                    continue
-                    
-            return False, "❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ"
-            
-        except Exception as e:
-            return False, f"❌ Ошибка обработки даты: {e}" 
-
-    def validate_order_number(self, text: str) -> Tuple[bool, Union[str, str]]:
-        """Валидация номера заказа"""
-        try:
-            text_clean = text.strip()
-            
-            if not text_clean:
-                return False, "❌ Номер заказа не может быть пустым"
-                
-            if not text_clean.isdigit():
-                return False, "❌ Номер заказа должен содержать только цифры"
-                
-            if len(text_clean) > 10:
-                return False, "❌ Номер заказа слишком длинный"
-                
-            return True, text_clean
-            
-        except Exception as e:
-            return False, f"❌ Ошибка обработки номера заказа: {e}"
-
-    def validate_workers(self, text: str) -> Tuple[bool, Union[str, str]]:
-        """Валидация списка исполнителей"""
-        try:
-            text_clean = text.strip()
-            
-            if not text_clean:
-                return False, "❌ Список исполнителей не может быть пустым"
-                
-            if len(text_clean) < 2:
-                return False, "❌ Слишком короткий список исполнителей"
-                
-            if len(text_clean) > 200:
-                return False, "❌ Слишком длинный список исполнителей"
-                
-            # Проверяем на наличие только разрешенных символов
-            if re.search(r'[<>{}[\]~]', text_clean):
-                return False, "❌ Недопустимые символы в списке исполнителей"
-                
-            return True, text_clean
-            
-        except Exception as e:
-            return False, f"❌ Ошибка обработки списка исполнителей: {e}"
-
     def setup_handlers(self) -> None:
         """Настройка обработчиков с улучшенной обработкой ошибок"""
         
         @self.bot.message_handler(commands=['start'])
         def send_welcome(message: types.Message) -> None:
+            """НОВЫЙ обработчик старта - используем новую навигацию"""
             try:
-                self.show_section_selection(message.chat.id)
+                chat_id = message.chat.id
+                print(f"🔍 DEBUG: /start от chat_id={chat_id}")
+                
+                # ✅ ИСПОЛЬЗУЕМ НОВУЮ НАВИГАЦИЮ
+                self.navigation.show_main_menu(chat_id)
+                
             except Exception as e:
                 self._handle_critical_error(message.chat.id, f"Ошибка при запуске: {e}")
 
         @self.bot.message_handler(commands=['help'])
         def send_help(message: types.Message) -> None:
             try:
-                self.show_help(message.chat.id)
+                self.navigation.show_help(message.chat.id)
             except Exception as e:
                 self._handle_critical_error(message.chat.id, f"Ошибка при показе помощи: {e}")
 
@@ -306,7 +232,7 @@ class TruckServiceManagerBot:
                         f"🏗️ {section_name}\n\n📋 Создание нового заказ-наряда\n\nВведите госномер автомобиля:\nПример: А123ВС77 или 1234АВ"
                     )
                 else:
-                    self.show_section_selection(chat_id)
+                    self.navigation.show_sections_menu(chat_id)  # ← ИЗМЕНИТЬ ЗДЕСЬ (было show_quick_order_menu)
             except Exception as e:
                 self._handle_critical_error(message.chat.id, f"Ошибка при создании нового заказа: {e}")
 
@@ -441,6 +367,36 @@ class TruckServiceManagerBot:
             except Exception as e:
                 self._handle_critical_error(message.chat.id, f"Ошибка обработки сообщения: {e}")
 
+        # ✅ НОВЫЙ ОБРАБОТЧИК ДЛЯ НАВИГАЦИОННЫХ CALLBACK
+        @self.bot.callback_query_handler(func=lambda call: call.data.startswith('nav:'))
+        def handle_navigation_callbacks(call: types.CallbackQuery) -> None:
+            """Обработчик навигационных callback (новая система)"""
+            try:
+                chat_id = call.message.chat.id
+                action = call.data.replace('nav:', '')
+                
+                print(f"🔍 DEBUG: Навигационный callback: {action} от chat_id={chat_id}")
+                
+                if action == 'back':
+                    self.navigation.handle_back(chat_id)
+                elif action == 'main_menu':
+                    self.navigation.show_main_menu(chat_id)
+                elif action == 'sections_menu':  # ← ДОБАВИТЬ ЭТУ СТРОКУ
+                    self.navigation.show_sections_menu(chat_id)
+                elif action == 'diagnostics':
+                    self.navigation.show_diagnostics_menu(chat_id)
+                elif action == 'help':
+                    self.navigation.show_help(chat_id)
+                else:
+                    self.bot.send_message(chat_id, f"❌ Неизвестное действие: {action}")
+                
+                # Подтверждаем обработку callback
+                self.bot.answer_callback_query(call.id)
+                
+            except Exception as e:
+                self._handle_critical_error(call.message.chat.id, f"Ошибка навигации: {e}")
+
+        # ✅ СТАРЫЕ ОБРАБОТЧИКИ ОСТАЮТСЯ ДЛЯ ОБРАТНОЙ СОВМЕСТИМОСТИ
         @self.bot.callback_query_handler(func=lambda call: True)
         def handle_callback(call: types.CallbackQuery) -> None:
             try:
@@ -471,287 +427,13 @@ class TruckServiceManagerBot:
             self.logger.error(f"Не удалось отправить сообщение об ошибке: {e}")            
 
     def show_help(self, chat_id: int) -> None:
-        help_text = """
-🤖 TruckService Manager - система управления заказ-нарядами
-
-Основные команды:
-/start - начать работу с ботом
-/new_order - создать новый заказ-наряд
-/help - показать эту справку
-
-Для начала работы используйте /start
-        """
-        self.bot.send_message(chat_id, help_text)
+        """Показать справку (для обратной совместимости)"""
+        self.navigation.show_help(chat_id)
 
     def show_section_selection(self, chat_id: int) -> None:
-        markup = types.InlineKeyboardMarkup()
-        
-        for section_id, section_data in self.sections.items():
-            markup.add(types.InlineKeyboardButton(
-                section_data['name'], 
-                callback_data=f"section_{section_id}"
-            ))
-        
-        custom_lists = self.admin_panel.get_available_lists()
-        print(f"🔍 DEBUG: найдено пользовательских списков: {custom_lists}")
-        
-        for list_name in custom_lists:
-            markup.add(types.InlineKeyboardButton(
-                f"📁 {list_name}", 
-                callback_data=f"custom_list_{list_name}"
-            ))
-        
-        markup.row(
-            types.InlineKeyboardButton("🐛 DEBUG", callback_data="debug_menu"),
-            types.InlineKeyboardButton("👨‍💻 АДМИН", callback_data="admin_panel")
-        )
-        
-        debug_status = "🔧 РЕЖИМ ОТЛАДКИ ВКЛЮЧЕН" if DEBUG_MODE else "⚙️ РАБОЧИЙ РЕЖИМ"
-        
-        lists_info = ""
-        if custom_lists:
-            lists_info = f"\n\n📂 Доступно списков: {len(custom_lists)}"
-            for list_name in custom_lists:
-                lists_info += f"\n• {list_name}"
-        
-        self.bot.send_message(
-            chat_id,
-            f"🏢 TruckService Manager\n\n{debug_status}\nЗаказы {'НЕ БУДУТ' if DEBUG_MODE else 'БУДУТ'} сохраняться в учет\n\nВыберите раздел работ:{lists_info}",
-            reply_markup=markup
-        )    
-       
-    def show_debug_menu(self, chat_id: int) -> None:
-        """Показывает оптимизированное меню отладки"""
-        print(f"🔍 DEBUG: show_debug_menu вызван для chat_id={chat_id}")
-        
-        try:
-            markup = types.InlineKeyboardMarkup()
-            
-            # ✅ ОПТИМИЗИРОВАННЫЕ КНОПКИ DEBUG МЕНЮ
-            markup.row(
-                types.InlineKeyboardButton("🧪 ТЕСТ + АВТОЗАПОЛНЕНИЕ", callback_data="debug_test_autofill")
-            )
-            markup.row(
-                types.InlineKeyboardButton("⚙️ НАСТРОЙКИ + ПЕРЕМЕННЫЕ", callback_data="debug_settings_variables")
-            )
-            markup.row(
-                types.InlineKeyboardButton("🔙 Назад", callback_data="debug_back")
-            )
-            
-            debug_info = f"""
-🐛 МЕНЮ ОТЛАДКИ
-
-Доступные функции:
-• 🧪 ТЕСТ + АВТОЗАПОЛНЕНИЕ - тест генерации Excel и заполнение тестовыми данными
-• ⚙️ НАСТРОЙКИ + ПЕРЕМЕННЫЕ - настройки системы и переменные сессии
-• 🔙 Назад - вернуться к выбору раздела
-
-Режим: {'ВКЛЮЧЕН' if DEBUG_MODE else 'ВЫКЛЮЧЕН'}
-            """
-            
-            print(f"🔍 DEBUG: Пытаюсь отправить сообщение в chat_id={chat_id}")
-            self.bot.send_message(chat_id, debug_info, reply_markup=markup)
-            print("✅ DEBUG: Меню отладки отправлено успешно")
-            
-        except Exception as e:
-            print(f"❌ Ошибка в show_debug_menu: {e}")
-            import traceback
-            traceback.print_exc()
-
-    def debug_test_autofill_combined(self, chat_id: int) -> None:
-        """✅ ОБЪЕДИНЕННАЯ ФУНКЦИЯ: тест генерации Excel + автозаполнение"""
-        try:
-            self.bot.send_message(chat_id, "🧪 Запускаю тест генерации Excel...")
-            
-            # Создаем тестовую сессию с 5 работами и всеми материалами
-            test_session = {
-                'section': 'base',
-                'license_plate': 'ТЕСТ001',
-                'date': datetime.datetime.now(),
-                'order_number': '999',
-                'workers': 'Тестовый Исполнитель',
-                'selected_works': [],
-                'selected_materials': [],
-                'header_template': 'bridge_town'
-            }
-            
-            # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
-            works = self.works_repository.get_works('base')
-            if len(works) >= 5:
-                test_session['selected_works'] = works[:5]
-                works_info = "\n".join([f"• {work[0]} ({work[1]} ч)" for work in works[:5]])
-            else:
-                test_session['selected_works'] = works
-                works_info = "\n".join([f"• {work[0]} ({work[1]} ч)" for work in works])
-            
-            # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
-            materials = self.materials_repository.get_materials()
-            test_session['selected_materials'] = materials
-            materials_info = "\n".join([f"• {material}" for material in materials])
-            
-            # ✅ ИСПОЛЬЗУЕМ ФАБРИКУ ДОКУМЕНТОВ ДЛЯ СОЗДАНИЯ ТЕСТОВОГО ЗАКАЗА
-            section_folder = self.sections['base']['folder']
-            documents = self.document_factory.create_all(test_session, section_folder)
-            
-            if documents:
-                # Отправляем результат теста
-                result_text = f"""
-🧪 ТЕСТ ГЕНЕРАЦИИ ДОКУМЕНТОВ ВЫПОЛНЕН!
-
-📊 СТРУКТУРА ТЕСТОВОГО ЗАКАЗА:
-
-🏗️ Раздел: {self.sections['base']['name']}
-🚗 Госномер: {test_session['license_plate']}
-📅 Дата: {test_session['date'].strftime('%d.%m.%Y')}
-🔢 Номер ЗН: {test_session['order_number']}
-👥 Исполнитель: {test_session['workers']}
-🏢 Шаблон шапки: {test_session['header_template']}
-
-📋 РАБОТЫ ({len(test_session['selected_works'])}):
-{works_info}
-
-📦 МАТЕРИАЛЫ ({len(test_session['selected_materials'])}):
-{materials_info}
-
-💾 Создано документов: {len(documents)}
-• Excel: {documents.get('excel', 'не создан')}
-• Текст: {documents.get('text', 'не создан')}
-
-✅ Документы созданы успешно через DocumentFactory!
-                """
-                
-                self.bot.send_message(chat_id, result_text)
-                
-                # Отправляем созданные файлы
-                for doc_type, doc_path in documents.items():
-                    try:
-                        with open(doc_path, 'rb') as doc_file:
-                            caption = f"🧪 {doc_type.upper()} документ"
-                            self.bot.send_document(chat_id, doc_file, caption=caption)
-                    except Exception as e:
-                        self.bot.send_message(chat_id, f"⚠️ Не удалось отправить {doc_type} файл: {e}")
-                    
-            else:
-                self.bot.send_message(chat_id, "❌ Ошибка создания документов через фабрику")
-            
-            # 🔄 АВТОЗАПОЛНЕНИЕ - создаем тестовую сессию для пользователя
-            self.bot.send_message(chat_id, "\n🔄 Выполняю автозаполнение тестовыми данными...")
-            
-            # Создаем тестовую сессию
-            self.user_sessions[chat_id] = {
-                'section': 'base',
-                'step': 'selecting_works',
-                'license_plate': 'А333АА33',
-                'date': datetime.datetime.now(),
-                'order_number': '333',
-                'workers': 'Мордвинов',
-                'selected_works': [],
-                'selected_materials': [],
-                'current_page': 0,
-                'header_template': 'bridge_town'
-            }
-            
-            session = self.user_sessions[chat_id]
-            
-            # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
-            works = self.works_repository.get_works('base')
-            session['works'] = works
-            
-            # ✅ ИСПОЛЬЗУЕМ РЕПОЗИТОРИЙ ВМЕСТО СТАРОГО МЕТОДА
-            materials = self.materials_repository.get_materials()
-            session['materials'] = materials
-            
-            # Выбираем первые 5 работ
-            if len(works) >= 5:
-                session['selected_works'] = works[:5]
-                works_info = "\n".join([f"• {work[0]} ({work[1]} ч)" for work in works[:5]])
-            else:
-                session['selected_works'] = works
-                works_info = "\n".join([f"• {work[0]} ({work[1]} ч)" for work in works])
-            
-            # Выбираем первые 2 материала
-            if len(materials) >= 2:
-                session['selected_materials'] = materials[:2]
-                materials_info = "\n".join([f"• {material}" for material in materials[:2]])
-            else:
-                session['selected_materials'] = materials
-                materials_info = "\n".join([f"• {material}" for material in materials])
-            
-            # Показываем результат автозаполнения
-            autofill_text = f"""
-🔄 АВТОЗАПОЛНЕНИЕ ВЫПОЛНЕНО!
-
-Тестовые данные:
-🚗 Госномер: {session['license_plate']}
-📅 Дата: {session['date'].strftime('%d.%m.%Y')}
-🔢 Номер ЗН: {session['order_number']}
-👥 Исполнитель: {session['workers']}
-🏗️ Раздел: {self.sections[session['section']]['name']}
-🏢 Шаблон шапки: {session['header_template']}
-
-Выбранные работы ({len(session['selected_works'])}):
-{works_info}
-
-Выбранные материалы ({len(session['selected_materials'])}):
-{materials_info}
-
-Теперь можно создать заказ-наряд!
-            """
-            
-            self.bot.send_message(chat_id, autofill_text)
-            
-            # Показываем меню выбора работ с уже выбранными работами
-            self.show_works_selection(chat_id)
-            
-        except Exception as e:
-            self.bot.send_message(chat_id, f"❌ Ошибка теста и автозаполнения: {e}")
-            import traceback
-            traceback.print_exc()
-
-    def debug_show_settings_variables_combined(self, chat_id: int) -> None:
-        """✅ ОБЪЕДИНЕННАЯ ФУНКЦИЯ: настройки системы + переменные сессии"""
-        try:
-            # 📊 НАСТРОЙКИ СИСТЕМЫ
-            settings_text = f"""
-⚙️ НАСТРОЙКИ СИСТЕМЫ
-
-• Режим отладки: {'ВКЛЮЧЕН' if DEBUG_MODE else 'ВЫКЛЮЧЕН'}
-• Чат для уведомлений: {self.chat_id}
-• Ставка за час: {self.excel_processor.rate_per_hour} руб.
-• Версия: 2.5.1 (оптимизированная)
-
-*Настройки в разработке*
-"""
-            self.bot.send_message(chat_id, settings_text)
-            
-            # 📊 ПЕРЕМЕННЫЕ СЕССИИ
-            if chat_id in self.user_sessions:
-                session = self.user_sessions[chat_id]
-                variables_text = f"""
-📊 ПЕРЕМЕННЫЕ СЕССИИ
-
-• Раздел: {session.get('section', 'не выбран')}
-• Госномер: {session.get('license_plate', 'не введен')}
-• Дата: {session.get('date', 'не введена')}
-• Номер ЗН: {session.get('order_number', 'не введен')}
-• Исполнители: {session.get('workers', 'не введены')}
-• Выбрано работ: {len(session.get('selected_works', []))}
-• Выбрано материалов: {len(session.get('selected_materials', []))}
-• Текущий шаг: {session.get('step', 'не определен')}
-• Шаблон шапки: {session.get('header_template', 'не выбран')}
-"""
-            else:
-                variables_text = """
-📊 ПЕРЕМЕННЫЕ СЕССИИ
-
-Активная сессия отсутствует
-Используйте 🧪 ТЕСТ + АВТОЗАПОЛНЕНИЕ для создания тестовой сессии
-"""
-            
-            self.bot.send_message(chat_id, variables_text)
-            
-        except Exception as e:
-            self.bot.send_message(chat_id, f"❌ Ошибка показа настроек и переменных: {e}")
+        """СТАРЫЙ МЕТОД - ПЕРЕНАПРАВЛЯЕМ НА НОВУЮ НАВИГАЦИЮ"""
+        print(f"🔍 DEBUG: show_section_selection перенаправлен на sections_menu")
+        self.navigation.show_sections_menu(chat_id)  # ← ИЗМЕНИТЬ ЗДЕСЬ
 
     def ask_about_photos(self, chat_id: int) -> None:
         markup = types.InlineKeyboardMarkup()
@@ -780,7 +462,6 @@ class TruckServiceManagerBot:
     def finalize_order_with_photos(self, chat_id: int) -> None:
         self._finalize_order_common(chat_id, has_photos=True)
 
-    # ✅ РАЗДЕЛЕНИЕ _finalize_order_common НА ЧАСТИ (ШАГ 4)
     def _finalize_order_common(self, chat_id: int, has_photos: bool = False) -> None:
         """УЛУЧШЕННАЯ ОБРАБОТКА ЗАВЕРШЕНИЯ ЗАКАЗА - ТЕПЕРЬ С РАЗДЕЛЕНИЕМ"""
         try:
@@ -797,7 +478,7 @@ class TruckServiceManagerBot:
             if not self._validate_calculations(session, chat_id):
                 return
             
-            # ✅ СОЗДАНИЕ ФАЙЛОВ ЧЕРЕЗ ФАБРИКУ ДОКУМЕНТОВ 🆕
+            # ✅ СОЗДАНИЕ ФАЙЛОВ ЧЕРЕЗ ФАБРИКУ ДОКУМЕНТОВ
             success = self._create_order_files_with_factory(session, chat_id, "ДА" if has_photos else "НЕТ")
             
             if success:
@@ -854,13 +535,11 @@ class TruckServiceManagerBot:
             self.bot.send_message(chat_id, f"❌ Ошибка расчета суммы: {e}")
             return False
 
-    # ✅ ДОБАВИТЬ ЭТОТ МЕТОД
     def cleanup_session(self, chat_id: int) -> None:
         """Очистка сессии пользователя"""
         if chat_id in self.user_sessions:
             del self.user_sessions[chat_id]
             print(f"✅ Сессия очищена для chat_id: {chat_id}")
-
 
     def _send_to_work_chat(self, session: Dict[str, Any], has_photos: bool) -> None:
         """Отправляет заказ в рабочий чат"""
@@ -871,7 +550,6 @@ class TruckServiceManagerBot:
             print(f"⚠️ Ошибка отправки в чат: {e}")
             # НЕ ПРЕРЫВАЕМ ВЫПОЛНЕНИЕ ИЗ-ЗА ОШИБКИ ОТПРАВКИ
 
-    # ✅ ОБЩИЙ МЕТОД ДЛЯ ОТПРАВКИ В ЧАТ (ШАГ 5)
     def _send_order_to_work_chat(self, session: Dict[str, Any], has_photos: bool) -> None:
         """ОБЩИЙ МЕТОД ДЛЯ ОТПРАВКИ ЗАКАЗА В РАБОЧИЙ ЧАТ - С ФОТО ИЛИ БЕЗ"""
         try:
@@ -931,7 +609,7 @@ class TruckServiceManagerBot:
             raise  # Пробрасываем исключение для обработки в вызывающем коде
 
     def _create_order_files_with_factory(self, session: Dict[str, Any], chat_id: int, photos_text: str) -> bool:
-        """СОЗДАНИЕ ФАЙЛОВ ЧЕРЕЗ ФАБРИКУ ДОКУМЕНТОВ 🆕"""
+        """СОЗДАНИЕ ФАЙЛОВ ЧЕРЕЗ ФАБРИКУ ДОКУМЕНТОВ"""
         try:
             # ✅ ОПРЕДЕЛЯЕМ ПУТЬ ДЛЯ СОХРАНЕНИЯ: стандартный раздел ИЛИ пользовательский список
             if session['section'].startswith('custom_'):
@@ -1014,7 +692,86 @@ class TruckServiceManagerBot:
         
         self.bot.send_message(chat_id, result_text)
 
-    # ✅ НОВЫЕ МЕТОДЫ ДЛЯ ОБРАБОТКИ ВВОДА (ШАГ 2)
+    def validate_license_plate(self, text: str) -> bool:
+        """Валидация госномера автомобиля"""
+        if not text or len(text) < 2:
+            return False
+            
+        # Паттерны для российских госномеров
+        patterns = [
+            r'^[АВЕКМНОРСТУХ]{1}\d{3}[АВЕКМНОРСТУХ]{2}\d{2,3}$',  # Стандартный: А123ВС77
+            r'^\d{4}[АВЕКМНОРСТУХ]{2}\d{2,3}$',  # Формат: 1234АВ77
+            r'^[АВЕКМНОРСТУХ]{2}\d{3}\d{2,3}$',  # Формат: АА12377
+        ]
+        
+        text_upper = text.upper().replace(' ', '')
+        
+        for pattern in patterns:
+            if re.match(pattern, text_upper):
+                return True
+                
+        return False
+
+    def validate_date(self, text: str) -> Tuple[bool, Union[datetime.datetime, str]]:
+        """Валидация даты - РАЗРЕШАЕМ БУДУЩИЕ ДАТЫ"""
+        try:
+            # Пробуем разные форматы дат
+            formats = ['%d.%m.%Y', '%d/%m/%Y', '%d-%m-%Y', '%Y.%m.%d', '%Y/%m/%d', '%Y-%m-%d']
+            
+            for fmt in formats:
+                try:
+                    date_obj = datetime.datetime.strptime(text.strip(), fmt)
+                    # ✅ УБИРАЕМ ПРОВЕРКУ НА БУДУЩЕЕ - разрешаем любые даты
+                    return True, date_obj
+                except ValueError:
+                    continue
+                    
+            return False, "❌ Неверный формат даты. Используйте ДД.ММ.ГГГГ"
+            
+        except Exception as e:
+            return False, f"❌ Ошибка обработки даты: {e}"
+
+    def validate_order_number(self, text: str) -> Tuple[bool, Union[str, str]]:
+        """Валидация номера заказа"""
+        try:
+            text_clean = text.strip()
+            
+            if not text_clean:
+                return False, "❌ Номер заказа не может быть пустым"
+                
+            if not text_clean.isdigit():
+                return False, "❌ Номер заказа должен содержать только цифры"
+                
+            if len(text_clean) > 10:
+                return False, "❌ Номер заказа слишком длинный"
+                
+            return True, text_clean
+            
+        except Exception as e:
+            return False, f"❌ Ошибка обработки номера заказа: {e}"
+
+    def validate_workers(self, text: str) -> Tuple[bool, Union[str, str]]:
+        """Валидация списка исполнителей"""
+        try:
+            text_clean = text.strip()
+            
+            if not text_clean:
+                return False, "❌ Список исполнителей не может быть пустым"
+                
+            if len(text_clean) < 2:
+                return False, "❌ Слишком короткий список исполнителей"
+                
+            if len(text_clean) > 200:
+                return False, "❌ Слишком длинный список исполнителей"
+                
+            # Проверяем на наличие только разрешенных символов
+            if re.search(r'[<>{}[\]~]', text_clean):
+                return False, "❌ Недопустимые символы в списке исполнителей"
+                
+            return True, text_clean
+            
+        except Exception as e:
+            return False, f"❌ Ошибка обработки списка исполнителей: {e}"
 
     def process_user_input(self, message: types.Message) -> None:
         """ОСНОВНОЙ ОБРАБОТЧИК ВВОДА ПОЛЬЗОВАТЕЛЯ - ТЕПЕРЬ С РОУТИНГОМ"""
@@ -1513,14 +1270,9 @@ class TruckServiceManagerBot:
             self.admin_panel.handle_add_list_start_sync(call)
             return
 
-        if data == 'admin_manage_lists':
-            self.bot.answer_callback_query(call.id, "Управление списками в разработке...")
-            self.bot.send_message(chat_id, "📋 Управление списками - в разработке 🚧")
-            return
-
         if data == 'admin_back':
             self.bot.answer_callback_query(call.id, "Возвращаемся...")
-            self.show_section_selection(chat_id)
+            self.navigation.show_main_menu(chat_id)
             return
 
         # ✅ ОБРАБОТЧИКИ ДЛЯ УПРАВЛЕНИЯ ШАБЛОНАМИ
@@ -1564,6 +1316,29 @@ class TruckServiceManagerBot:
             self.bot.send_message(chat_id, "✏️ Редактирование шаблонов - в разработке 🚧")
             return
 
+        # ✅ ОБРАБОТЧИКИ ДЛЯ УПРАВЛЕНИЯ СПИСКАМИ
+        if data == 'admin_manage_lists':
+            self.bot.answer_callback_query(call.id, "Управление списками...")
+            self.admin_panel.show_lists_management_sync(call)
+            return
+
+        if data.startswith('admin_view_list:'):
+            list_name = data.replace('admin_view_list:', '')
+            self.bot.answer_callback_query(call.id, "Загружаем информацию о списке...")
+            self.admin_panel.handle_view_list_sync(call, list_name)
+            return
+
+        if data.startswith('admin_delete_list:'):
+            list_name = data.replace('admin_delete_list:', '')
+            self.bot.answer_callback_query(call.id, "Удаляем список...")
+            self.admin_panel.handle_delete_list_sync(call, list_name)
+            return
+
+        if data == 'admin_refresh_lists':
+            self.bot.answer_callback_query(call.id, "Обновляем списки...")
+            self.admin_panel.show_lists_management_sync(call)
+            return
+
         # ✅ ОБРАБОТЧИК ВЫБОРА ШАПКИ - УДАЛЕН ИЗ ИНТЕРФЕЙСА РАБОТ
         # if data == 'select_header':  # ❌ УДАЛЕНО - шапка выбирается раньше
 
@@ -1586,28 +1361,6 @@ class TruckServiceManagerBot:
             
             # ✅ ПОСЛЕ ВЫБОРА ШАПКИ - ПЕРЕХОД К ВВОДУ ДАННЫХ ЗАКАЗА
             self.ask_license_plate(chat_id)
-            return
-
-        # ✅ ОБРАБОТЧИКИ DEBUG МЕНЮ - ОПТИМИЗИРОВАННЫЕ
-        if data == 'debug_menu':
-            self.bot.answer_callback_query(call.id, "Открываю меню отладки...")
-            self.show_debug_menu(chat_id)
-            return
-        
-        elif data == 'debug_back':
-            self.bot.answer_callback_query(call.id, "Возвращаюсь...")
-            self.show_section_selection(chat_id)
-            return
-        
-        # ✅ ОБЪЕДИНЕННЫЕ ОБРАБОТЧИКИ DEBUG
-        elif data == 'debug_test_autofill':
-            self.bot.answer_callback_query(call.id, "🧪 Запускаю тест и автозаполнение...")
-            self.debug_test_autofill_combined(chat_id)
-            return
-            
-        elif data == 'debug_settings_variables':
-            self.bot.answer_callback_query(call.id, "⚙️ Показываю настройки и переменные...")
-            self.debug_show_settings_variables_combined(chat_id)
             return
 
         # ✅ ОБРАБОТЧИК ПОЛЬЗОВАТЕЛЬСКИХ СПИСКОВ

@@ -35,20 +35,19 @@ class AdminPanel:
         return message.chat.id in self.awaiting_input_users
 
     def show_admin_panel_sync(self, call):
-        """Обновленная админ-панель с кнопками управления шаблонами"""
+        """Обновленная админ-панель"""
         print(f"🔍 DEBUG show_admin_panel_sync: bot={self.bot is not None}")
         if not self.bot:
             print("❌ DEBUG: bot instance not set")
             return
         
         keyboard = [
-            [types.InlineKeyboardButton("➕ ДОБАВИТЬ СПИСОК", callback_data="admin_add_list")],
             [types.InlineKeyboardButton("📋 УПРАВЛЕНИЕ СПИСКАМИ", callback_data="admin_manage_lists")],
             [types.InlineKeyboardButton("🏢 УПРАВЛЕНИЕ ШАБЛОНАМИ", callback_data="admin_manage_templates")],
             [types.InlineKeyboardButton("🔙 НАЗАД", callback_data="admin_back")]
         ]
         reply_markup = types.InlineKeyboardMarkup(keyboard)
-    
+
         self.bot.edit_message_text(
             chat_id=call.message.chat.id,
             message_id=call.message.message_id,
@@ -95,6 +94,94 @@ class AdminPanel:
             if "message is not modified" not in str(e):
                 # Игнорируем ошибку "message is not modified"
                 print(f"⚠️ Ошибка обновления сообщения: {e}")
+
+    def show_lists_management_sync(self, call):
+        """Панель управления списками работ"""
+        if not self.bot:
+            return
+            
+        custom_lists = self.get_available_lists()
+        
+        keyboard = []
+        
+        # Кнопки для каждого списка
+        for list_name in custom_lists:
+            keyboard.append([
+                types.InlineKeyboardButton(
+                    f"📁 {list_name}", 
+                    callback_data=f"admin_view_list:{list_name}"
+                )
+            ])
+        
+        # Кнопки действий
+        keyboard.append([
+            types.InlineKeyboardButton("➕ ДОБАВИТЬ СПИСОК", callback_data="admin_add_list"),
+            types.InlineKeyboardButton("🔄 ОБНОВИТЬ СПИСКИ", callback_data="admin_refresh_lists")
+        ])
+        keyboard.append([
+            types.InlineKeyboardButton("🔙 НАЗАД", callback_data="admin_back_to_main")
+        ])
+        
+        reply_markup = types.InlineKeyboardMarkup(keyboard)
+        
+        self.bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=f"📋 УПРАВЛЕНИЕ СПИСКАМИ РАБОТ\n\nДоступно списков: {len(custom_lists)}\n\nВыберите список для просмотра или действие:",
+            reply_markup=reply_markup
+        )
+
+    def handle_view_list_sync(self, call, list_name: str):
+        """Просмотр информации о списке"""
+        if not self.bot:
+            return
+            
+        # Загружаем работы из списка для показа статистики
+        works = self.load_works_from_custom_list(list_name)
+        
+        list_info = f"""
+📋 ИНФОРМАЦИЯ О СПИСКЕ: {list_name}
+
+📊 Статистика:
+• Количество работ: {len(works)}
+• Общее время: {sum(hours for _, hours in works):.1f} н/ч
+• Среднее время: {sum(hours for _, hours in works) / len(works) if works else 0:.1f} н/ч
+
+📍 Путь: {self.custom_lists_path / list_name}
+        """
+        
+        keyboard = [
+            [types.InlineKeyboardButton("✏️ РЕДАКТИРОВАТЬ", callback_data=f"admin_edit_list:{list_name}")],
+            [types.InlineKeyboardButton("🗑️ УДАЛИТЬ", callback_data=f"admin_delete_list:{list_name}")],
+            [types.InlineKeyboardButton("🔙 НАЗАД", callback_data="admin_manage_lists")]
+        ]
+        
+        reply_markup = types.InlineKeyboardMarkup(keyboard)
+        
+        self.bot.edit_message_text(
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            text=list_info,
+            reply_markup=reply_markup
+        )
+
+    def handle_delete_list_sync(self, call, list_name: str):
+        """Удаление списка"""
+        if not self.bot:
+            return
+            
+        try:
+            list_path = self.custom_lists_path / list_name
+            if list_path.exists():
+                import shutil
+                shutil.rmtree(list_path)
+                self.bot.answer_callback_query(call.id, f"✅ Список '{list_name}' удален")
+                self.show_lists_management_sync(call)
+            else:
+                self.bot.answer_callback_query(call.id, f"❌ Список '{list_name}' не найден")
+                
+        except Exception as e:
+            self.bot.answer_callback_query(call.id, f"❌ Ошибка удаления: {e}")
 
     def _load_header_templates(self) -> Dict[str, Dict]:
         """Загрузка всех шаблонов шапок"""

@@ -1,9 +1,9 @@
 {
-  "id": "test",
-  "name": "Тест",
+  "id": "testing",
+  "name": "Test",
   "customer": {
-    "company": "ООО ТЕСТ",
-    "address": "ГОРОД, УЛИЦА, ДОМ"
+    "company": "Тест",
+    "address": "Город улица дом"
   },
   "contractor": {
     "company": "ИП Айрапетян Кристина Тиграновна",
