@@ -16,6 +16,12 @@ import logging
 import pickle
 from typing import Dict, List, Tuple, Optional, Union, Any
 
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email.mime.text import MIMEText
+from email import encoders
+
 # ✅ ИМПОРТ МОДУЛЕЙ
 from modules.excel_processor import ExcelProcessor, ExcelProcessingError
 from modules.data_repositories import (RepositoryFactory, WorksRepository, MaterialsRepository, 
@@ -27,7 +33,7 @@ from modules.navigation_manager import NavigationManager  # ✅ НОВЫЙ ИМ�
 load_dotenv()
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 
-DEBUG_MODE = True
+DEBUG_MODE = False
 CHAT_ID = "-1003145822387"
 
 # ✅ КОНКРЕТНЫЕ ИСКЛЮЧЕНИЯ ДЛЯ BOT.PY
@@ -404,6 +410,73 @@ class TruckServiceManagerBot:
             except Exception as e:
                 self._handle_critical_error(call.message.chat.id, f"Ошибка обработки callback: {e}")
 
+    def _send_order_by_email(self, excel_file_path: str, session: Dict[str, Any]) -> bool:
+        """Отправка заказ-наряда по email"""
+        try:
+            email_to = os.getenv('EMAIL_TO')
+            email_from = os.getenv('EMAIL_FROM')
+            email_password = os.getenv('EMAIL_PASSWORD')
+            
+            if not all([email_to, email_from, email_password]):
+                print("❌ Email настройки не заданы в .env")
+                return False
+            
+            # Создаем сообщение
+            msg = MIMEMultipart()
+            msg['From'] = email_from
+            msg['To'] = email_to
+            msg['Subject'] = f"Заказ-наряд №{session.get('order_number', '000')}"
+            
+            # Текст письма
+            body = f"""
+            Заказ-наряд создан через TruckService Manager
+            
+            Данные заказа:
+            🚗 Госномер: {session['license_plate']}
+            📅 Дата: {session['date'].strftime('%d.%m.%Y')}
+            🔢 Номер ЗН: {session.get('order_number', '000')}
+            👥 Исполнители: {session['workers']}
+            
+            Файл во вложении.
+            """
+            msg.attach(MIMEText(body, 'plain'))
+
+            # Прикрепляем Excel файл
+            with open(excel_file_path, 'rb') as attachment:
+                part = MIMEBase('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                part.set_payload(attachment.read())
+            
+            encoders.encode_base64(part)
+            filename = os.path.basename(excel_file_path)
+            
+            # Правильное указание имени файла с кодировкой
+            part.add_header(
+                'Content-Disposition',
+                'attachment',
+                filename=('utf-8', '', filename)
+            )
+            part.add_header(
+                'Content-Type',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                name=filename
+            )
+            
+            msg.attach(part)
+            
+            # Отправляем через mail.ru
+            server = smtplib.SMTP('smtp.mail.ru', 587)
+            server.starttls()
+            server.login(email_from, email_password)
+            server.send_message(msg)
+            server.quit()
+            
+            print(f"✅ Заказ отправлен на email: {email_to}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка отправки email: {e}")
+            return False
+
     def _handle_photo_error(self, chat_id: int, error_message: str) -> None:
         """Обработка ошибок при работе с фото"""
         try:
@@ -608,8 +681,11 @@ class TruckServiceManagerBot:
             print(f"⚠️ Не удалось отправить заказ в чат: {e}")
             raise  # Пробрасываем исключение для обработки в вызывающем коде
 
+        # ОТПРАВКА СООБЩЕНИЯ 
+        #self.bot.send_message(1364203895, f"✅ Заказ №{session.get('order_number', '000')} создан!")
+
     def _create_order_files_with_factory(self, session: Dict[str, Any], chat_id: int, photos_text: str) -> bool:
-        """СОЗДАНИЕ ФАЙЛОВ ЧЕРЕЗ ФАБРИКУ ДОКУМЕНТОВ"""
+        """СОЗДАНИЕ ФАЙЛОВ ЧЕРЕЗ ФАБРИКУ ДОКУМЕНТОВ - ИСПРАВЛЕННАЯ ВЕРСИЯ"""
         try:
             # ✅ ОПРЕДЕЛЯЕМ ПУТЬ ДЛЯ СОХРАНЕНИЯ: стандартный раздел ИЛИ пользовательский список
             if session['section'].startswith('custom_'):
@@ -627,6 +703,16 @@ class TruckServiceManagerBot:
             if not documents:
                 raise DocumentCreationError("Не удалось создать документы через фабрику")
             
+            # ✅ ПОЛУЧАЕМ ИМЕНА ФАЙЛОВ ДЛЯ УЧЕТА
+            excel_filename = documents.get('excel', pathlib.Path()).name
+            draft_filename = documents.get('text', pathlib.Path()).name
+            
+            # ✅ СОХРАНЯЕМ ИМЯ ЧЕРНОВИКА В СЕССИИ ДЛЯ УЧЕТА
+            session['draft_filename'] = draft_filename
+            
+            # ✅ СОХРАНЯЕМ В УЧЕТ С ПРАВИЛЬНЫМИ ИМЕНАМИ ФАЙЛОВ
+            accounting_success = self.accounting_repository.save_order(session, excel_filename, photos_text)
+            
             # Отправляем созданные документы пользователю
             for doc_type, doc_path in documents.items():
                 try:
@@ -637,10 +723,11 @@ class TruckServiceManagerBot:
                 except Exception as e:
                     print(f"⚠️ Не удалось отправить {doc_type} документ: {e}")
             
-            # Сохраняем в учет (используем имя Excel файла для обратной совместимости)
-            excel_filename = documents.get('excel', pathlib.Path()).name
-            accounting_success = self.accounting_repository.save_order(session, excel_filename, photos_text)
-            
+            # Отправка на email
+            excel_path = documents.get('excel')
+            if excel_path and os.path.exists(excel_path):
+                self._send_order_by_email(str(excel_path), session)
+
             return True
             
         except DocumentCreationError as e:

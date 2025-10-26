@@ -301,20 +301,34 @@ class ExcelAccountingRepository(AccountingRepository):
         try:
             section_id = session['section']
             
-            # ✅ ОБРАБОТКА ПОЛЬЗОВАТЕЛЬСКИХ СПИСКОВ
+            # ✅ ВЫЧИСЛЯЕМ section_name ПЕРВЫМ ДЕЛОМ
             if section_id.startswith('custom_'):
-                # Для пользовательских списков используем базовый учет
+                section_name = f"📁 {session['custom_list']}"
+            else:
+                section_name = self.sections_config[section_id]['name']
+            
+            # ✅ ПОТОМ перезаписываем section_id для учета
+            if section_id.startswith('custom_'):
                 section_id = 'base'
             
             # Сохраняем в раздельный учет
             section_accounting_file = self.sections_config[section_id]['folder'] / "Учет" / "учет_заказов.xlsx"
-            wb_section = pd.ExcelWriter(section_accounting_file, engine='openpyxl', mode='a', if_sheet_exists='overlay')
             
-            # Читаем существующие данные
+            # ✅ ИСПРАВЛЕННЫЕ КОЛОНКИ ДЛЯ РАЗДЕЛЬНОГО УЧЕТА (11 колонок)
+            section_columns = [
+                "ID", "Дата создания", "Время создания", "Номер ЗН", "Госномер", 
+                "Исполнители", "Кол-во работ", "Общее время", "Файл Excel", "Файл черновика", "Фото добавлены"
+            ]
+            
+            # Читаем существующие данные ИЛИ создаем новый DataFrame с правильными колонками
             try:
                 df_section = pd.read_excel(section_accounting_file)
+                # Проверяем, что все колонки присутствуют
+                for col in section_columns:
+                    if col not in df_section.columns:
+                        df_section[col] = None
             except:
-                df_section = pd.DataFrame()
+                df_section = pd.DataFrame(columns=section_columns)
             
             # Добавляем новую запись
             now = datetime.datetime.now()
@@ -322,7 +336,7 @@ class ExcelAccountingRepository(AccountingRepository):
             selected_count = len(session['selected_works'])
             total_hours = sum(hours for _, hours in session['selected_works'])
             
-            new_record = {
+            new_record = pd.DataFrame([{
                 'ID': order_id,
                 'Дата создания': session['date'].strftime('%d.%m.%Y'),
                 'Время создания': now.strftime('%H:%M:%S'),
@@ -332,38 +346,54 @@ class ExcelAccountingRepository(AccountingRepository):
                 'Кол-во работ': selected_count,
                 'Общее время': total_hours,
                 'Файл Excel': excel_filename,
+                'Файл черновика': session.get('draft_filename', ''),
                 'Фото добавлены': has_photos
-            }
-            df_section = self._safe_dataframe_concat(df_section, pd.DataFrame([new_record]))
-            df_section.to_excel(wb_section, index=False)
-            wb_section.close()
+            }])
+            
+            # Добавляем запись и сохраняем (исправленная конкатенация)
+            df_section = pd.concat([df_section, new_record], ignore_index=True)
+            df_section.to_excel(section_accounting_file, index=False)
+            
+            # ✅ ПРИМЕНЯЕМ АВТО-ФОРМАТИРОВАНИЕ ДЛЯ РАЗДЕЛЬНОГО УЧЕТА
+            self._apply_accounting_formatting(section_accounting_file)
             
             # Сохраняем в общий учет
             common_accounting_file = self.common_accounting_folder / "главная_база.xlsx"
-            wb_common = pd.ExcelWriter(common_accounting_file, engine='openpyxl', mode='a', if_sheet_exists='overlay')
+            
+            # ✅ ИСПРАВЛЕННЫЕ КОЛОНКИ ДЛЯ ОБЩЕГО УЧЕТА (11 колонок)
+            common_columns = [
+                "ID", "Дата создания", "Время создания", "Раздел", "Номер ЗН", 
+                "Госномер", "Исполнители", "Кол-во работ", "Общее время", "Файл Excel", "Фото добавлены"
+            ]
             
             try:
                 df_common = pd.read_excel(common_accounting_file)
+                # Проверяем, что все колонки присутствуют
+                for col in common_columns:
+                    if col not in df_common.columns:
+                        df_common[col] = None
             except:
-                df_common = pd.DataFrame()
+                df_common = pd.DataFrame(columns=common_columns)
             
-            section_name = self.sections_config[section_id]['name']
-            
-            new_common_record = {
+            new_common_record = pd.DataFrame([{
                 'ID': len(df_common) + 1 if not df_common.empty else 1,
                 'Дата создания': session['date'].strftime('%d.%m.%Y'),
                 'Время создания': now.strftime('%H:%M:%S'),
-                'Раздел': section_name,
+                'Раздел': section_name,  # ✅ Теперь правильное имя раздела
                 'Номер ЗН': session.get('order_number', '000'),
                 'Госномер': session['license_plate'],
                 'Исполнители': session['workers'],
                 'Кол-во работ': selected_count,
                 'Общее время': total_hours,
+                'Файл Excel': excel_filename,
                 'Фото добавлены': has_photos
-            }
-            df_common = self._safe_dataframe_concat(df_common, pd.DataFrame([new_common_record]))
-            df_common.to_excel(wb_common, index=False)
-            wb_common.close()
+            }])
+            
+            df_common = pd.concat([df_common, new_common_record], ignore_index=True)
+            df_common.to_excel(common_accounting_file, index=False)
+            
+            # ✅ ПРИМЕНЯЕМ АВТО-ФОРМАТИРОВАНИЕ ДЛЯ ОБЩЕГО УЧЕТА
+            self._apply_accounting_formatting(common_accounting_file)
             
             self.logger.info(f"✅ Заказ сохранен в учет: раздел {section_id}, ID {order_id}, фото: {has_photos}")
             return True
@@ -412,6 +442,52 @@ class ExcelAccountingRepository(AccountingRepository):
             ])
             df.to_excel(accounting_file, index=False)
 
+    def _apply_accounting_formatting(self, file_path: pathlib.Path) -> None:
+        """Применяет авто-форматирование к файлам учета"""
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, Alignment
+            from openpyxl.utils import get_column_letter
+            
+            wb = openpyxl.load_workbook(file_path)
+            ws = wb.active
+            
+            # Автоподбор ширины колонок
+            for column in ws.columns:
+                max_length = 0
+                column_letter = get_column_letter(column[0].column)
+                
+                for cell in column:
+                    try:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                    except:
+                        pass
+                
+                adjusted_width = min(max_length + 2, 50)  # Максимальная ширина 50
+                ws.column_dimensions[column_letter].width = adjusted_width
+            
+            # ✅ ВЫРАВНИВАНИЕ ПО ЦЕНТРУ ДЛЯ ВСЕХ ЯЧЕЕК
+            for row in ws.iter_rows():
+                for cell in row:
+                    if cell.row == 1:  # Заголовки
+                        cell.font = Font(bold=True)
+                        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                    else:
+                        # ✅ ВСЕ ДАННЫЕ ПО ЦЕНТРУ
+                        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+                
+                # Автоподбор высоты строки
+                ws.row_dimensions[row[0].row].height = None
+            
+            # Закрепляем шапку
+            ws.freeze_panes = 'A2'
+            
+            wb.save(file_path)
+            print(f"✅ Применено авто-форматирование: {file_path.name}")
+            
+        except Exception as e:
+            print(f"⚠️ Ошибка форматирования {file_path}: {e}")
 
 # ✅ ФАБРИКА РЕПОЗИТОРИЕВ
 class RepositoryFactory:

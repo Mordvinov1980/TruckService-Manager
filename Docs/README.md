@@ -1,13 +1,11 @@
 # 🚛 TruckService Manager
 
-![Version](https://img.shields.io/badge/version-2.5.2-blue)
+![Version](https://img.shields.io/badge/version-2.8.0-blue)
 ![Python](https://img.shields.io/badge/python-3.8+-green)
 ![Telegram](https://img.shields.io/badge/telegram-bot-blue)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-**Профессиональная система управления автосервисом для грузовых автомобилей**
-
-*Автоматизация заказ-нарядов, диагностика автомобилей, управление документами*
+**Профессиональная система управления автосервисом для грузовых автомобилей с полной автоматизацией документооборота**
 
 ## ✨ ОСОБЕННОСТИ
 
@@ -38,6 +36,7 @@
 ## 🚀 БЫСТРЫЙ СТАРТ
 
 ### Установка
+```bash
 # Клонирование репозитория
 git clone https://github.com/Mordvinov1980/TruckService-Manager.git
 cd TruckService_Manager
@@ -61,6 +60,7 @@ python bot.py
 Создайте заказ - следуйте интуитивному интерфейсу
 
 📁 СТРУКТУРА ПРОЕКТА
+text
 TruckService_Manager/
 ├── 🤖 bot.py                          # Основной бот-координатор
 ├── 📦 modules/                        # Архитектурные модули
@@ -68,8 +68,9 @@ TruckService_Manager/
 │   ├── 📊 excel_processor.py         # Генерация Excel документов
 │   ├── 💾 data_repositories.py       # Работа с данными
 │   ├── 🏭 document_factory.py        # Фабрика документов
+│   ├── 🧭 navigation_manager.py      # Централизованная навигация
 │   ├── 🔧 vehicle_diagnostics.py     # Диагностика автомобилей
-│   └── 📋 diagnostic_repository.py   # Хранение диагностики
+│   └── 💽 diagnostic_repository.py   # Хранение диагностики
 ├── 📁 Пользовательские_списки/       # Динамические списки работ
 ├── 🏢 Шаблоны/header_templates/      # JSON шаблоны документов
 ├── 📊 data/                          # Базы данных
@@ -131,9 +132,9 @@ Dependency Injection - для слабой связности компонент
 
 📈 СТАТУС РАЗРАБОТКИ
 Компонент	Статус	Версия
-🤖 Основной бот	✅ Завершено	2.5.2
-📊 Генерация документов	✅ Завершено	2.5.2
-🏢 Управление шаблонами	✅ Завершено	2.5.2
+🤖 Основной бот	✅ Завершено	2.8.0
+📊 Генерация документов	✅ Завершено	2.8.0
+🏢 Управление шаблонами	✅ Завершено	2.8.0
 🔧 Диагностика автомобилей	🟡 В разработке	2.5.0
 🌐 Веб-интерфейс	🔴 Планируется	3.0.0
 🤝 РАЗРАБОТЧИКАМ
@@ -145,6 +146,7 @@ Telegram Bot Token
 Доступ к файловой системе (для хранения данных)
 
 Установка для разработки
+bash
 git clone https://github.com/Mordvinov1980/TruckService-Manager.git
 cd TruckService_Manager
 python -m venv venv
@@ -152,6 +154,7 @@ source venv/bin/activate  # Linux/MacOS
 venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 Запуск в режиме разработки
+bash
 # С включенным DEBUG режимом
 python bot.py
 📄 ЛИЦЕНЗИЯ
@@ -159,11 +162,9 @@ python bot.py
 
 📞 КОНТАКТЫ И ПОДДЕРЖКА
 Автор: Mordvinov1980
-
 Репозиторий: TruckService-Manager
-
 Вопросы и предложения: Issues
 
 ⭐ Если проект был полезен - поставьте звезду на GitHub!
 
-Обновлено: 20.10.2025 | Версия: 2.5.2
+Обновлено: 26.10.2025 | Версия: 2.8.0
